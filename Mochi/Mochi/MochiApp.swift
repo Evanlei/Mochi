@@ -3,8 +3,9 @@ import SwiftUI
 @main
 struct MochiApp: App {
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra("Mochi", systemImage: "music.note") {
             ContentView()
         }
+        .menuBarExtraStyle(.window)
     }
 }
