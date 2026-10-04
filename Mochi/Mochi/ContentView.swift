@@ -11,10 +11,12 @@ struct ContentView: View {
             TextField("Describe what you want to hear", text: $prompt)
 
             Button("Find Music") { 
-                if prompt.isEmpty {
+                let cleanedPrompt = prompt.trimmingCharacters(in:.whitespacesAndNewlines) 
+
+                if cleanedPrompt.isEmpty {
                     message = "Describe some music first."
                 } else {
-                    message = prompt
+                    message = cleanedPrompt
                 } 
             }
 
