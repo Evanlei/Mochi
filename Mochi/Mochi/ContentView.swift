@@ -19,10 +19,12 @@ struct ContentView: View {
                     message = cleanedPrompt
                 } 
             }
+            .keyboardShortcut(.defaultAction)
 
 
         }
         .padding()
+        .frame(width: 360, height: 180)
     }
 }
 
