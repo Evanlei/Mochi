@@ -11,5 +11,8 @@ xcrun swiftc -parse-as-library -swift-version 5 \
     Mochi/Mochi/SpotifyAuthError.swift \
     Mochi/Mochi/SpotifyCallback.swift \
     Mochi/Mochi/SpotifyCallbackListener.swift \
+    Mochi/Mochi/SpotifyTokens.swift \
+    Mochi/Mochi/SpotifyTokenClient.swift \
+    Mochi/Mochi/SpotifyTokenStore.swift \
     Tests/AuthChecks.swift -o "$test_build_dir/auth-checks"
 "$test_build_dir/auth-checks"
