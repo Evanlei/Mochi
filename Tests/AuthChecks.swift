@@ -119,6 +119,79 @@ struct AuthChecks {
         } catch SpotifyAuthError.invalidTokenResponse { }
         precondition(!SpotifyTokens(accessToken: "fake", refreshToken: "fake", expiresAt: Date(), scope: scope).isUsable())
         print("PASS: HTTPS token request fields, form escaping, token decoding, refresh rotation, expiration errors")
+
+        let store = MemoryTokenStore()
+        try reply(["access_token": "fake-access", "refresh_token": "fake-refresh",
+                   "token_type": "Bearer", "expires_in": 3600, "scope": scope])
+        var callbackTask: Task<Void, Error>?
+        let model = SpotifyAuthModel(tokenClient: client, tokenStore: store) { url in
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
+            let state = items.first { $0.name == "state" }!.value!
+            callbackTask = Task {
+                let callback = URL(string: "http://127.0.0.1:8888/callback?code=fake-code&state=\(state)")!
+                _ = try await URLSession.shared.data(from: callback)
+            }
+            return true
+        }
+        model.connect()
+        for _ in 0..<500 where model.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(!model.isBusy && model.isConnected)
+        try await callbackTask?.value
+        precondition(store.tokens?.accessToken == "fake-access")
+        let access = try await model.validAccessToken()
+        precondition(access == "fake-access")
+        model.disconnect()
+        precondition(!model.isConnected && store.tokens == nil)
+
+        store.tokens = tokens
+        let restoredModel = SpotifyAuthModel(tokenClient: client, tokenStore: store)
+        await restoredModel.restore()
+        precondition(restoredModel.isConnected)
+        let restoredAccess = try await restoredModel.validAccessToken()
+        precondition(restoredAccess == "fake-access")
+        restoredModel.disconnect()
+
+        store.tokens = SpotifyTokens(accessToken: "expired", refreshToken: "fake-refresh", expiresAt: .distantPast, scope: scope)
+        try reply(["access_token": "refreshed", "token_type": "Bearer", "expires_in": 3600])
+        let expiredModel = SpotifyAuthModel(tokenClient: client, tokenStore: store)
+        await expiredModel.restore()
+        precondition(expiredModel.isConnected && store.tokens?.accessToken == "refreshed")
+        expiredModel.disconnect()
+
+        store.tokens = SpotifyTokens(accessToken: "expired", refreshToken: "revoked", expiresAt: .distantPast, scope: scope)
+        try reply(["error": "invalid_grant"], status: 400)
+        let revokedModel = SpotifyAuthModel(tokenClient: client, tokenStore: store)
+        await revokedModel.restore()
+        precondition(!revokedModel.isConnected && store.tokens == nil)
+
+        let browserFailure = SpotifyAuthModel(tokenClient: client, tokenStore: store, openBrowser: { _ in false })
+        browserFailure.connect()
+        for _ in 0..<500 where browserFailure.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(!browserFailure.isConnected && !browserFailure.isBusy)
+        precondition(browserFailure.statusMessage == SpotifyAuthError.browserUnavailable.localizedDescription)
+        let cancelledModel = SpotifyAuthModel(tokenClient: client, tokenStore: store, openBrowser: { _ in true })
+        cancelledModel.connect()
+        cancelledModel.cancelConnection()
+        try await Task.sleep(for: .milliseconds(50))
+        precondition(!cancelledModel.isConnected && !cancelledModel.isBusy && store.tokens == nil)
+        print("PASS: complete login with simulated Spotify, saved-session restoration, refresh, revocation, browser failure, cancellation")
+
+        if CommandLine.arguments.contains("--keychain") {
+            let keychain = SpotifyTokenStore(service: "com.evan.Mochi.auth-test.\(UUID().uuidString)", account: "test-only")
+            defer { try? keychain.delete() }
+            let initial = try keychain.load()
+            precondition(initial == nil)
+            try keychain.save(tokens)
+            let saved = try keychain.load()
+            precondition(saved?.accessToken == tokens.accessToken)
+            try keychain.save(refreshed)
+            let updated = try keychain.load()
+            precondition(updated?.accessToken == refreshed.accessToken)
+            try keychain.delete()
+            let deleted = try keychain.load()
+            precondition(deleted == nil)
+            print("PASS: isolated Keychain save, load, update and delete")
+        }
     }
 
     static func formFields(_ request: URLRequest) -> [String: String] {
@@ -141,6 +214,14 @@ struct AuthChecks {
         let items = URLComponents(string: "https://example.test/?\(query)")!.queryItems!
         return Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
     }
+}
+
+@MainActor
+final class MemoryTokenStore: SpotifyTokenStoring {
+    var tokens: SpotifyTokens?
+    func load() throws -> SpotifyTokens? { tokens }
+    func save(_ tokens: SpotifyTokens) throws { self.tokens = tokens }
+    func delete() throws { tokens = nil }
 }
 
 final class MockTokenProtocol: URLProtocol, @unchecked Sendable {

@@ -14,5 +14,6 @@ xcrun swiftc -parse-as-library -swift-version 5 \
     Mochi/Mochi/SpotifyTokens.swift \
     Mochi/Mochi/SpotifyTokenClient.swift \
     Mochi/Mochi/SpotifyTokenStore.swift \
+    Mochi/Mochi/SpotifyAuthModel.swift \
     Tests/AuthChecks.swift -o "$test_build_dir/auth-checks"
-"$test_build_dir/auth-checks"
+"$test_build_dir/auth-checks" "$@"
