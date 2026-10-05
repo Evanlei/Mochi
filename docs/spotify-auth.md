@@ -13,7 +13,7 @@ Mochi uses OAuth Authorization Code with PKCE to obtain permission to read and c
 
 Declining access leaves Mochi disconnected. **Cancel** stops the pending login. A login times out after three minutes. **Disconnect** deletes Mochi's local saved tokens; it does not revoke the app's grant on Spotify. To revoke the grant remotely, remove Mochi from the connected-apps page of your Spotify account.
 
-The music request button still displays the submitted prompt. Track search, recommendation and playback services are separate future work.
+The music request button still displays the submitted prompt. The separate Now Playing panel reads playback and provides play/pause, previous, and next controls. Track search and recommendations are future work.
 
 ## What happens when you connect
 
@@ -36,7 +36,7 @@ The music request button still displays the submitted prompt. Track search, reco
 | Challenge | Fingerprint of the verifier | Authorization URL; not secret |
 | State | Associates the callback with our login attempt | Authorization URL and callback, compared locally |
 | Authorization code | Temporary ticket after approval | Browser callback, then HTTPS token exchange |
-| Access token | Pass for approved API operations | Keychain, then future API Authorization headers |
+| Access token | Pass for approved API operations | Keychain, then playback API Authorization headers |
 | Refresh token | Obtains a replacement access token | Keychain and HTTPS token endpoint |
 
 PKCE protects a stolen authorization code from being redeemed without the verifier. It does not protect an already-stolen access token. HTTPS protects the verifier and token exchange in transit; Keychain stores tokens outside the repository.
@@ -49,9 +49,9 @@ PKCE protects a stolen authorization code from being redeemed without the verifi
 
 The model tracks an operation generation so an old cancelled operation cannot overwrite a newer login. It shares an in-flight refresh task so concurrent callers do not independently refresh the same credentials.
 
-## Later API requests
+## Playback API requests
 
-Playback services will ask `SpotifyAuthModel.validAccessToken()` for a token. It reuses an access token when more than 60 seconds remain, otherwise refreshes it over HTTPS. If Spotify omits a replacement refresh token, Mochi keeps the previous one. If Spotify returns `invalid_grant`, Mochi deletes the saved tokens and asks you to reconnect. Temporary network failures do not erase saved credentials.
+`SpotifyPlaybackModel` asks `SpotifyAuthModel.validAccessToken()` for a token. It reuses an access token when more than 60 seconds remain, otherwise refreshes it over HTTPS. If Spotify explicitly rejects a playback request with HTTP 401, the model forces a token refresh and retries that request once. It does not repeat a skip after a timeout or an uncertain failure. If Spotify omits a replacement refresh token, Mochi keeps the previous one. If Spotify returns `invalid_grant`, Mochi deletes the saved tokens and asks you to reconnect. Temporary network failures do not erase saved credentials.
 
 Spotify currently documents a six-month refresh-token lifetime from original authorization; refreshing does not reset that lifetime. The implementation handles invalidation through `invalid_grant`, rather than assuming refresh tokens last forever.
 
@@ -59,7 +59,7 @@ Spotify currently documents a six-month refresh-token lifetime from original aut
 
 Run `bash scripts/test-auth.sh` for the RFC PKCE reference vector, verifier generation, URL parameters, callback validation, real loopback requests, timeout/cancellation, mocked token exchange/refresh, and full simulated login/restoration tests. `bash scripts/test-auth.sh --keychain` also checks a unique temporary Keychain entry using fake tokens and deletes it afterward.
 
-The app builds and the automated checks pass. Live approval with your Spotify account is a manual verification step. The network entitlements permit outbound HTTPS and an inbound listener while preserving App Sandbox; the code binds the listener to loopback only.
+Live approval and restoring the connection after relaunch have been manually confirmed with the user's Spotify account. Automated checks use simulated token responses. The network entitlements permit outbound HTTPS and an inbound listener while preserving App Sandbox; the code binds the listener to loopback only.
 
 ## Official references
 

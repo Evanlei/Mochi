@@ -2,7 +2,7 @@
 
 A native macOS menu-bar music companion, built with Swift and SwiftUI. Mochi is being developed to turn natural-language listening requests into personalized recommendations, with Spotify providing playback.
 
-The native shell and Spotify authorization flow are implemented. Recommendation retrieval, ranking, and playback integration are still planned.
+The native shell, Spotify authorization, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
 
 ## Current functionality
 
@@ -13,8 +13,12 @@ The native shell and Spotify authorization flow are implemented. Recommendation 
 - HTTPS token exchange, access-token refresh, and secure token storage in macOS Keychain.
 - Restoration of a saved connection when the panel opens after relaunch.
 - Local disconnect that removes Mochi's saved tokens.
+- Now Playing with the song, artist, playing/paused status, and Spotify device.
+- Play/pause, previous, next, and manual Refresh controls.
+- Refresh when the panel opens or connects, and after a playback command.
+- Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Find Music currently displays your submitted request. It does not recommend tracks or start playback yet.** Automated authentication checks pass using simulated Spotify responses; live login with a Spotify account still needs manual verification.
+**Find Music currently displays your submitted request. It does not recommend tracks or start playback yet.** Live Spotify login and connection restoration have been manually confirmed. Automated authentication and playback checks use simulated Spotify responses.
 
 ## Requirements
 
@@ -64,6 +68,19 @@ The listener binds only to `127.0.0.1`, on your own computer. If port 8888 is oc
 
 For the code walkthrough, security model, refresh behavior, and official references, see [Spotify authentication](docs/spotify-auth.md).
 
+## Now Playing and controls
+
+1. Connect Spotify in Mochi.
+2. Open Spotify on your preferred device and start a song.
+3. Open Mochi's menu-bar panel. Click the circular-arrow **Refresh** button if needed.
+4. Use **Previous**, **Play/Pause**, or **Next**. Mochi targets the device shown in the panel and reads the updated playback state after Spotify accepts the command.
+
+Mochi takes a snapshot when the panel opens, after a control action, or when you click Refresh. It does not continuously poll Spotify. If you change tracks or devices elsewhere, click Refresh before using the controls. Spotify may take a moment to reflect a command; Refresh can fetch a newer result.
+
+Controls are disabled while a request is running, when Spotify reports restrictions, or when there is no usable playback state. A failed refresh marks the displayed information as old and disables controls until a successful refresh. If Spotify limits requests, wait for the indicated delay before refreshing.
+
+The playback client gets its access token from the existing authentication model. Expired tokens refresh automatically; an explicit token rejection triggers one refresh and retry. Uncertain failures such as a timeout do not repeat a skip command.
+
 ## Authentication checks
 
 From the repository root:
@@ -82,19 +99,29 @@ bash scripts/test-auth.sh --keychain
 
 The Keychain check creates a uniquely named item containing fake tokens and deletes it afterward. Keep port 8888 free while running the checks.
 
+## Playback checks
+
+```bash
+bash scripts/test-playback.sh
+```
+
+These checks cover playback decoding, all four control requests, device targeting, restricted actions, missing playback, token refresh/retry, rate limits, serialized controls, and ignoring responses after disconnect. They use fake tokens and intercepted network responses; they do not change real Spotify playback. Live playback should also be checked from the running app.
+
 ## Project layout
 
 ```text
 Mochi/
   Mochi.xcodeproj/        Native macOS project
-  Mochi/                 SwiftUI interface and Spotify authentication
-Tests/AuthChecks.swift   Authentication checks
-scripts/test-auth.sh     Compiles and runs the checks
+  Mochi/                 SwiftUI interface, Spotify authentication and playback
+Tests/                   Authentication and playback checks
+scripts/                 Compile and run the checks
 docs/spotify-auth.md     Authentication walkthrough
 backend/                 Reserved for the planned Python service
 ```
 
 `SpotifyAuthModel` coordinates authentication independently of the view. The app owns this model, so dismissing the menu-bar panel does not cancel login. Tokens stay in Keychain; temporary verifier and state values stay in memory for the login attempt.
+
+`SpotifyPlaybackClient` sends playback requests and decodes Spotify's responses. `SpotifyPlaybackModel` manages the displayed state, busy/error status, and control sequencing. `NowPlayingView` displays that state and calls the model when you click a button. The app owns both models, keeping authentication and playback separate from the interface.
 
 ## Planned recommendation architecture
 
@@ -109,4 +136,4 @@ Natural-language request
 
 Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The planned backend uses Python and FastAPI, with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
 
-Next milestones are live Spotify authentication verification, track search and resolution, playback control, and communication with the Python backend.
+Next milestones are live playback verification, track search and resolution, and communication with the Python backend. A draggable floating Mochi companion is also planned after the core controls.
