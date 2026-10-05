@@ -18,6 +18,9 @@ final class SpotifyAuthModel: ObservableObject {
     private var generation = 0
     private var hasRestored = false
 
+    // Lets an API request detect sign-out/reconnection while it was awaiting a response.
+    var connectionVersion: Int { generation }
+
     init(
         tokenClient: SpotifyTokenClient? = nil,
         tokenStore: (any SpotifyTokenStoring)? = nil,
@@ -134,9 +137,9 @@ final class SpotifyAuthModel: ObservableObject {
     }
 
     /// Playback services will call this instead of reading or storing tokens themselves.
-    func validAccessToken() async throws -> String {
+    func validAccessToken(forceRefresh: Bool = false) async throws -> String {
         guard let tokens else { throw SpotifyAuthError.reconnectRequired }
-        if tokens.isUsable() { return tokens.accessToken }
+        if tokens.isUsable() && !forceRefresh { return tokens.accessToken }
         let currentGeneration = generation
         let task: Task<SpotifyTokens, Error>
         if let existing = refreshTask {
