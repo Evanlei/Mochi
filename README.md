@@ -57,7 +57,7 @@ The resulting app is `build/Build/Products/Debug/Mochi.app`. Build output is ign
    http://127.0.0.1:8888/callback
    ```
 
-3. Set your app's Client ID in [SpotifyConfiguration.swift](Mochi/Mochi/SpotifyConfiguration.swift). The Client ID is public; PKCE does not require a client secret.
+3. Set your app's Client ID in [SpotifyAuthorization.swift](Mochi/Mochi/SpotifyAuthorization.swift) under **App configuration**. The Client ID is public; PKCE does not require a client secret.
 4. Run one copy of Mochi, open the panel, and click **Connect Spotify**.
 5. Sign in and approve the requested playback permissions on Spotify's page.
 6. Return to Mochi and wait for **Spotify connected.**
@@ -121,7 +121,18 @@ backend/                 Reserved for the planned Python service
 
 `SpotifyAuthModel` coordinates authentication independently of the view. The app owns this model, so dismissing the menu-bar panel does not cancel login. Tokens stay in Keychain; temporary verifier and state values stay in memory for the login attempt.
 
-`SpotifyPlaybackClient` sends playback requests and decodes Spotify's responses. `SpotifyPlaybackModel` manages the displayed state, busy/error status, and control sequencing. `NowPlayingView` displays that state and calls the model when you click a button. The app owns both models, keeping authentication and playback separate from the interface.
+`SpotifyPlaybackClient.swift` contains the playback requests and the types used to read Spotify's responses. `SpotifyPlaybackModel` manages the displayed state, busy/error status, and control sequencing. `NowPlayingView` displays that state and calls the model when you click a button. The app owns both models, keeping authentication and playback separate from the interface.
+
+The smaller authentication helpers are grouped by their role:
+
+- `SpotifyAuthorization.swift`: app configuration, login preparation, authorization URL, and PKCE.
+- `SpotifyCallbackListener.swift`: receive and validate the browser callback.
+- `SpotifyAuthTypes.swift`: saved-token data and authentication errors.
+- `SpotifyTokenClient.swift`: exchange the authorization code and refresh tokens.
+- `SpotifyTokenStore.swift`: save and load tokens in Keychain.
+- `SpotifyAuthModel.swift`: coordinate the connection and expose its status to the UI.
+
+Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
 ## Planned recommendation architecture
 

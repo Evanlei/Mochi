@@ -4,7 +4,7 @@ Mochi uses OAuth Authorization Code with PKCE to obtain permission to read and c
 
 ## Try the connection
 
-1. In the Spotify developer dashboard, register exactly `http://127.0.0.1:8888/callback` for the Client ID in `SpotifyConfiguration.swift`.
+1. In the Spotify developer dashboard, register exactly `http://127.0.0.1:8888/callback` for the Client ID under **App configuration** in `SpotifyAuthorization.swift`.
 2. Open `Mochi/Mochi.xcodeproj` and run the Mochi scheme on My Mac. Run only one copy while connecting, since port 8888 is fixed.
 3. Open the music-note menu-bar panel and click **Connect Spotify**.
 4. Sign in and approve the permissions on Spotify's own page.
