@@ -3,8 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var spotify: SpotifyAuthModel
     @ObservedObject var playback: SpotifyPlaybackModel
-    @State private var message = "What do you want to hear?"
-    @State private var prompt = ""
+    @ObservedObject var companion: MochiCompanionController
 
     var body: some View {
         VStack(spacing: 12) {
@@ -28,20 +27,14 @@ struct ContentView: View {
             Divider()
             NowPlayingView(spotify: spotify, playback: playback)
             Divider()
-            Text(message)
-
-            TextField("Describe what you want to hear", text: $prompt)
-
-            Button("Find Music") {
-                let cleanedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                if cleanedPrompt.isEmpty {
-                    message = "Describe some music first."
-                } else {
-                    message = cleanedPrompt
+            HStack {
+                Button(companion.isVisible ? "Hide Mochi" : "Show Mochi") {
+                    companion.setVisible(!companion.isVisible)
                 }
+                Spacer()
+                Button("Quit") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q")
             }
-            .keyboardShortcut(.defaultAction)
         }
         .padding()
         .frame(width: 380)
@@ -54,5 +47,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel())
+    ContentView(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(), companion: MochiCompanionController())
 }
