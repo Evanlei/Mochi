@@ -102,9 +102,9 @@ struct MochiCompanionCard: View {
                 Button { request.submit() } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0xDCE8D9))
+                        .foregroundStyle(Color(hex: 0x60705E))
                         .frame(width: 26, height: 26)
-                        .background(Color(hex: 0xA5BCB6).opacity(0.2), in: Circle())
+                        .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!request.canSubmit)
@@ -113,21 +113,21 @@ struct MochiCompanionCard: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 42)
-            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 11))
+            .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
         }
         .padding(14)
         .frame(width: Self.size.width, height: Self.size.height)
-        .foregroundStyle(Color(hex: 0xF1F3ED))
+        .foregroundStyle(Color.mochiInk)
         .background {
             if reduceTransparency {
-                Color(hex: 0x202725)
+                Color(hex: 0xEFF3EC)
             } else {
-                CompanionGlass().overlay(Color(hex: 0x202725).opacity(0.22))
+                CompanionGlass().overlay(Color(hex: 0xEFF3EC).opacity(0.22))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-        .environment(\.colorScheme, .dark)
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
+        .environment(\.colorScheme, .light)
         .onExitCommand(perform: onClose)
         .task { composerFocused = true }
     }
@@ -136,8 +136,8 @@ struct MochiCompanionCard: View {
         Button { request.submit(title); composerFocused = true } label: {
             Text(title).font(.system(size: 11))
                 .padding(.horizontal, 12).frame(height: 26)
-                .background(Color.white.opacity(0.07), in: Capsule())
-                .overlay(Capsule().strokeBorder(Color(hex: 0xA5BCB6).opacity(0.25), lineWidth: 1))
+                .background(Color.white.opacity(0.3), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color(hex: 0xA5BCB6).opacity(0.45), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -146,10 +146,10 @@ struct MochiCompanionCard: View {
 private struct CompanionGlass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = .popover
         view.blendingMode = .behindWindow
         view.state = .active
-        view.appearance = NSAppearance(named: .darkAqua)
+        view.appearance = NSAppearance(named: .aqua)
         return view
     }
 
@@ -241,7 +241,7 @@ private extension Color {
                   green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1)
     }
     static let mochiInk = Color(hex: 0x514951)
-    static let mochiMuted = Color(hex: 0xBAC6BE)
+    static let mochiMuted = Color(hex: 0x637167)
 }
 
 #Preview("Companion") {
