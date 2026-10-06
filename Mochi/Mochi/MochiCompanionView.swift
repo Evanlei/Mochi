@@ -392,17 +392,10 @@ struct MochiMascotArtwork: View {
             context.scaleBy(x: pose.scaleX, y: pose.scaleY)
             context.translateBy(x: -240, y: -350)
 
-            context.fill(MochiArt.body, with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: Color(hex: 0xE1EADF), location: 0),
-                    .init(color: Color(hex: 0xD9E5D9), location: 0.43),
-                    .init(color: Color(hex: 0xC8DACE), location: 0.68),
-                    .init(color: Color(hex: 0xB6CEC3), location: 0.88),
-                    .init(color: Color(hex: 0xA5BCB6), location: 1)
-                ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
-            context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
-            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 104, y: 284), pose.leftWave),
-                                          (MochiArt.rightHand, CGPoint(x: 378, y: 284), pose.rightWave)] {
+            // Rotate from roots inside the body, then cover them with the body fill.
+            // The hidden overlap keeps large waves attached instead of exposing an open seam.
+            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 112, y: 284), pose.leftWave),
+                                          (MochiArt.rightHand, CGPoint(x: 370, y: 284), pose.rightWave)] {
                 var handContext = context
                 handContext.translateBy(x: anchor.x, y: anchor.y)
                 handContext.rotate(by: .degrees(Double(angle)))
@@ -412,6 +405,15 @@ struct MochiMascotArtwork: View {
                 handContext.fill(hand, with: .color(Color(hex: 0xC8DACE)))
                 handContext.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
             }
+            context.fill(MochiArt.body, with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: Color(hex: 0xE1EADF), location: 0),
+                    .init(color: Color(hex: 0xD9E5D9), location: 0.43),
+                    .init(color: Color(hex: 0xC8DACE), location: 0.68),
+                    .init(color: Color(hex: 0xB6CEC3), location: 0.88),
+                    .init(color: Color(hex: 0xA5BCB6), location: 1)
+                ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
+            context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
 
             var face = context
             face.translateBy(x: pose.lookX, y: 0)
@@ -509,14 +511,22 @@ private enum MochiArt {
         p.closeSubpath()
     }
     static let leftHand = Path { p in
-        p.move(to: CGPoint(x: 104, y: 284))
+        p.move(to: CGPoint(x: 112, y: 276))
+        p.addQuadCurve(to: CGPoint(x: 104, y: 284), control: CGPoint(x: 104, y: 276))
         p.addCurve(to: CGPoint(x: 96, y: 304), control1: CGPoint(x: 95, y: 290), control2: CGPoint(x: 89, y: 299))
         p.addCurve(to: CGPoint(x: 114, y: 299), control1: CGPoint(x: 101, y: 309), control2: CGPoint(x: 109, y: 306))
+        p.addQuadCurve(to: CGPoint(x: 120, y: 292), control: CGPoint(x: 120, y: 302))
+        p.addQuadCurve(to: CGPoint(x: 112, y: 276), control: CGPoint(x: 124, y: 280))
+        p.closeSubpath()
     }
     static let rightHand = Path { p in
-        p.move(to: CGPoint(x: 378, y: 284))
+        p.move(to: CGPoint(x: 370, y: 276))
+        p.addQuadCurve(to: CGPoint(x: 378, y: 284), control: CGPoint(x: 378, y: 276))
         p.addCurve(to: CGPoint(x: 385, y: 304), control1: CGPoint(x: 387, y: 291), control2: CGPoint(x: 392, y: 299))
         p.addCurve(to: CGPoint(x: 371, y: 299), control1: CGPoint(x: 380, y: 308), control2: CGPoint(x: 375, y: 305))
+        p.addQuadCurve(to: CGPoint(x: 362, y: 292), control: CGPoint(x: 362, y: 302))
+        p.addQuadCurve(to: CGPoint(x: 370, y: 276), control: CGPoint(x: 358, y: 280))
+        p.closeSubpath()
     }
 
 }
