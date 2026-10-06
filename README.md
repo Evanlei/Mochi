@@ -1,13 +1,16 @@
 # Mochi
 
-A native macOS menu-bar music companion, built with Swift and SwiftUI. Mochi is being developed to turn natural-language listening requests into personalized recommendations, with Spotify providing playback.
+A native macOS music companion, built with Swift and SwiftUI. A small floating Mochi collects listening requests, while the menu-bar panel controls Spotify playback. Mochi is being developed to turn those requests into personalized recommendations.
 
-The native shell, Spotify authorization, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
+The floating companion, listening-request card, Spotify authorization, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
 
 ## Current functionality
 
-- Menu-bar panel with a music-request text field.
-- Submission by button or Return, including validation for blank and whitespace-only requests.
+- A draggable sage Mochi character, matching the supplied SVG artwork.
+- Click Mochi to open or close a compact listening-request card.
+- Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
+- Local follow-up prompts and a summary of your preferences, retained while the app runs.
+- Saved desktop position and visibility, plus Show/Hide Mochi and Quit in the menu-bar panel.
 - Spotify Authorization Code with PKCE, using the system browser and a local callback listener.
 - Callback state validation, cancellation, timeout, and connection-status messages.
 - HTTPS token exchange, access-token refresh, and secure token storage in macOS Keychain.
@@ -18,7 +21,7 @@ The native shell, Spotify authorization, Now Playing display, and basic playback
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Find Music currently displays your submitted request. It does not recommend tracks or start playback yet.** Live Spotify login and connection restoration have been manually confirmed. Automated authentication and playback checks use simulated Spotify responses.
+**The companion currently collects preferences with simple local prompts. It does not use an AI service, recommend tracks, or start playback from those requests yet.** Live Spotify login, connection restoration, and playback controls have been manually confirmed. Automated authentication and playback checks use simulated Spotify responses.
 
 ## Requirements
 
@@ -34,6 +37,7 @@ Most source editing can be done in VS Code. Xcode provides the native project, b
 2. Select the **Mochi** scheme and **My Mac** destination.
 3. Build and run with **Command-R**.
 4. Click the music-note icon in the macOS menu bar to open the panel.
+5. Mochi appears near the bottom-right of your desktop on first launch. Click the character to open the listening-request card. If you previously hid it, click **Show Mochi** in the menu-bar panel.
 
 You can also build from the repository root:
 
@@ -81,6 +85,20 @@ Controls are disabled while a request is running, when Spotify reports restricti
 
 The playback client gets its access token from the existing authentication model. Expired tokens refresh automatically; an explicit token rejection triggers one refresh and retry. Uncertain failures such as a timeout do not repeat a skip command.
 
+## Floating Mochi
+
+- **Drag** the character to move it. Its position is saved between launches.
+- **Click** the character to open or close the card. Dragging does not also open it.
+- Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
+- Mochi asks for another preference after the first submission. These are fixed local prompts, ready for a future discovery service.
+- Click the reset arrow to start a **new listening request**.
+- Press **Escape**, click the close button, or click outside the card to dismiss it. Closing retains your draft and preferences during this app session.
+- Use **Hide Mochi / Show Mochi** in the menu-bar panel. Hiding also closes the card; visibility is remembered after quitting.
+
+The companion stays above ordinary windows and joins desktop Spaces. Its card opens above the character when space permits, below it near the top edge, and stays within the display's usable area. If a remembered display is disconnected, Mochi moves back onto an available display. Spotify controls remain in the menu bar.
+
+Your listening preferences are currently kept in memory and cleared when the app quits. Only the character's position and visibility are saved in local app preferences.
+
 ## Authentication checks
 
 From the repository root:
@@ -107,16 +125,31 @@ bash scripts/test-playback.sh
 
 These checks cover playback decoding, all four control requests, device targeting, restricted actions, missing playback, token refresh/retry, rate limits, serialized controls, and ignoring responses after disconnect. They use fake tokens and intercepted network responses; they do not change real Spotify playback. Live playback should also be checked from the running app.
 
+## Companion checks
+
+```bash
+bash scripts/test-companion.sh
+```
+
+Run this in a logged-in macOS desktop session. The checks briefly show native test windows and verify screen-edge placement, multiple/removed displays, accessible click toggling, keyboard focus, typing, Return submission, Escape dismissal, and position/visibility restoration. They use a unique temporary preferences domain and remove it afterward; they do not use Spotify credentials or modify real playback.
+
+To also render the actual SwiftUI card and character for inspection:
+
+```bash
+bash scripts/test-companion.sh /private/tmp/MochiCompanionPreview
+```
+
 ## Project layout
 
 ```text
 Mochi/
   Mochi.xcodeproj/        Native macOS project
-  Mochi/                 SwiftUI interface, Spotify authentication and playback
-Tests/                   Authentication and playback checks
+  Mochi/                 SwiftUI interface, desktop windows, authentication and playback
+Tests/                   Authentication, playback and companion checks
 scripts/                 Compile and run the checks
 docs/spotify-auth.md     Authentication walkthrough
 backend/                 Reserved for the planned Python service
+design/                  Supplied mascot and companion UI SVG references
 ```
 
 `SpotifyAuthModel` coordinates authentication independently of the view. The app owns this model, so dismissing the menu-bar panel does not cancel login. Tokens stay in Keychain; temporary verifier and state values stay in memory for the login attempt.
@@ -134,6 +167,8 @@ The smaller authentication helpers are grouped by their role:
 
 Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
+`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, its local request state, and vector drawing of the supplied character. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
+
 ## Planned recommendation architecture
 
 ```text
@@ -147,4 +182,4 @@ Natural-language request
 
 Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The planned backend uses Python and FastAPI, with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
 
-Next milestones are live playback verification, track search and resolution, and communication with the Python backend. A draggable floating Mochi companion is also planned after the core controls.
+Next milestones are track search and resolution, conversational discovery, and communication with the Python backend.

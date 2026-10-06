@@ -97,7 +97,7 @@ struct MochiCompanionCard: View {
                 TextField("", text: $request.draft, axis: .vertical)
                     .font(.system(size: 11))
                     .textFieldStyle(.plain)
-                    .lineLimit(1...2)
+                    .lineLimit(2...2)
                     .focused($composerFocused)
                     .onSubmit { request.submit() }
                     .onChange(of: request.draft) { _, text in
@@ -106,7 +106,9 @@ struct MochiCompanionCard: View {
                     .overlay(alignment: .leading) {
                         if request.draft.isEmpty {
                             Text("Tell me a mood, artist,\nor song…")
+                                .font(.system(size: 11))
                                 .foregroundStyle(Color.mochiMuted)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .allowsHitTesting(false).accessibilityHidden(true)
                         }
                     }
@@ -142,7 +144,7 @@ struct MochiCompanionCard: View {
             Text(title).font(.system(size: 11))
                 .padding(.horizontal, 16).frame(height: 30)
                 .background(Color(hex: 0xFBFBF7), in: Capsule())
-                .overlay(Capsule().stroke(Color(hex: 0xDCE4D8), lineWidth: 1))
+                .overlay(Capsule().strokeBorder(Color(hex: 0xDCE4D8), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

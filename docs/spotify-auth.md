@@ -13,7 +13,7 @@ Mochi uses OAuth Authorization Code with PKCE to obtain permission to read and c
 
 Declining access leaves Mochi disconnected. **Cancel** stops the pending login. A login times out after three minutes. **Disconnect** deletes Mochi's local saved tokens; it does not revoke the app's grant on Spotify. To revoke the grant remotely, remove Mochi from the connected-apps page of your Spotify account.
 
-The music request button still displays the submitted prompt. The separate Now Playing panel reads playback and provides play/pause, previous, and next controls. Track search and recommendations are future work.
+The floating Mochi card collects listening preferences using local follow-up prompts. The separate menu-bar Now Playing panel reads playback and provides play/pause, previous, and next controls. Track search and recommendations are future work.
 
 ## What happens when you connect
 
