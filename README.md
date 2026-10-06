@@ -1,5 +1,7 @@
 # Mochi
 
+<img src="design/mochi-app-icon.png" alt="Mochi: a sage blob with oval eyes and a tiny smile on warm cream" width="112" height="112">
+
 A native macOS music companion, built with Swift and SwiftUI. A small floating Mochi collects listening requests, while the menu-bar panel controls Spotify playback. Mochi is being developed to turn those requests into personalized recommendations.
 
 The floating companion, listening-request card, Spotify authorization, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
@@ -101,6 +103,12 @@ The companion stays above ordinary windows and joins desktop Spaces. Its card op
 
 Your listening preferences are currently kept in memory and cleared when the app quits. Only the character's position and visibility are saved in local app preferences.
 
+## App icon
+
+Mochi's app icon uses the sage character on a warm cream rounded square. The editable source is [mochi-app-icon-concept.svg](design/mochi-app-icon-concept.svg); [mochi-app-icon.png](design/mochi-app-icon.png) is the 1024-pixel export used above.
+
+Xcode's `Assets.xcassets/AppIcon.appiconset` contains the macOS icon sizes, including Retina versions. Both Debug and Release builds use this asset. You can inspect it by opening **Assets → AppIcon** in Xcode, and see the built app's icon in Finder. Mochi runs as a menu-bar app, so it does not appear in the Dock; the music-note menu-bar button opens playback controls.
+
 ## Authentication checks
 
 From the repository root:
@@ -151,7 +159,7 @@ Tests/                   Authentication, playback and companion checks
 scripts/                 Compile and run the checks
 docs/spotify-auth.md     Authentication walkthrough
 backend/                 Reserved for the planned Python service
-design/                  Supplied mascot and companion UI SVG references
+design/                  Mascot, UI references, app icon source and previews
 ```
 
 `SpotifyAuthModel` coordinates authentication independently of the view. The app owns this model, so dismissing the menu-bar panel does not cancel login. Tokens stay in Keychain; temporary verifier and state values stay in memory for the login attempt.
