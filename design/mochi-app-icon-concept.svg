@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Mochi app icon concept</title>
+  <desc>A soft sage Mochi with oval eyes and a small smile on a warm cream rounded square.</desc>
+  <defs>
+    <linearGradient id="sage" x1="240" y1="110" x2="240" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE8DC"/>
+      <stop offset="1" stop-color="#BBD1C4"/>
+    </linearGradient>
+  </defs>
+  <rect id="Cream-background" width="1024" height="1024" rx="224" fill="#FAF7EF"/>
+  <g id="Mochi" transform="translate(-88 -80) scale(2.5)">
+    <path id="Sage-body" d="M236 110C302 107 349 146 367 200C379 238 391 294 380 330C371 361 336 372 240 372C155 372 115 362 104 332C91 297 101 248 114 208C133 147 173 112 236 110Z" fill="url(#sage)"/>
+    <ellipse id="Left-eye" cx="190" cy="244" rx="9" ry="13" fill="#514951"/>
+    <ellipse id="Right-eye" cx="290" cy="244" rx="9" ry="13" fill="#514951"/>
+    <path id="Smile" d="M231 244Q241 253 251 244" stroke="#514951" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+</svg>

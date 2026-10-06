@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="680" viewBox="0 0 1000 680">
+<title>Mochi app icon mockup and small-size previews</title>
+<defs><symbol id="app-icon" viewBox="0 0 1024 1024">  <defs>
+    <linearGradient id="sage" x1="240" y1="110" x2="240" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE8DC"/>
+      <stop offset="1" stop-color="#BBD1C4"/>
+    </linearGradient>
+  </defs>
+  <rect id="Cream-background" width="1024" height="1024" rx="224" fill="#FAF7EF"/>
+  <g id="Mochi" transform="translate(-88 -80) scale(2.5)">
+    <path id="Sage-body" d="M236 110C302 107 349 146 367 200C379 238 391 294 380 330C371 361 336 372 240 372C155 372 115 362 104 332C91 297 101 248 114 208C133 147 173 112 236 110Z" fill="url(#sage)"/>
+    <ellipse id="Left-eye" cx="190" cy="244" rx="9" ry="13" fill="#514951"/>
+    <ellipse id="Right-eye" cx="290" cy="244" rx="9" ry="13" fill="#514951"/>
+    <path id="Smile" d="M231 244Q241 253 251 244" stroke="#514951" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+</symbol></defs>
+<rect width="1000" height="680" fill="#EDF0EB"/>
+<g font-family="-apple-system, BlinkMacSystemFont, Helvetica, sans-serif" fill="#514951">
+<text x="64" y="68" font-size="30" font-weight="600">Mochi</text>
+<text x="64" y="100" font-size="15" fill="#7B817B">App icon · first concept</text>
+<use href="#app-icon" x="64" y="144" width="432" height="432"/>
+<text x="600" y="171" font-size="16" font-weight="600">At everyday sizes</text>
+<use href="#app-icon" x="600" y="208" width="128" height="128"/>
+<use href="#app-icon" x="766" y="272" width="64" height="64"/>
+<use href="#app-icon" x="866" y="304" width="32" height="32"/>
+<text x="664" y="372" text-anchor="middle" font-size="13" fill="#7B817B">128 px</text>
+<text x="798" y="372" text-anchor="middle" font-size="13" fill="#7B817B">64 px</text>
+<text x="882" y="372" text-anchor="middle" font-size="13" fill="#7B817B">32 px</text>
+<text x="600" y="456" font-size="16" font-weight="600">Our Mochi, simplified</text>
+<text x="600" y="489" font-size="15" fill="#7B817B">A slouched blob, two eyes, a tiny smile.</text>
+<text x="600" y="514" font-size="15" fill="#7B817B">Soft sage on warm cream.</text>
+<text x="64" y="632" font-size="13" fill="#7B817B">DESIGN STUDY / 01</text>
+</g></svg>
