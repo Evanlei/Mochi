@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="720" viewBox="0 0 1000 720">
+<defs><filter id="shadow" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#514951" flood-opacity=".08"/></filter></defs>
+<rect width="1000" height="720" fill="#EEEFEA"/>
+<g font-family="Arial, sans-serif" fill="#514951">
+<text x="52" y="55" font-size="15">mochi / music companion</text>
+<text x="52" y="83" font-size="12" fill="#8C9188">A little music chat, one click away.</text>
+<text x="167" y="210" font-size="11" fill="#8C9188" letter-spacing="1">CLOSED</text>
+<text x="590" y="170" font-size="11" fill="#8C9188" letter-spacing="1">OPEN</text>
+<g transform="translate(126 294) scale(.29)">
+<g id="Mochi &#226;&#128;&#162; pastel sage">
+<path id="Soft shadow" opacity="0.4" d="M240 383C317.32 383 380 378.971 380 374C380 369.029 317.32 365 240 365C162.68 365 100 369.029 100 374C100 378.971 162.68 383 240 383Z" fill="#B7AFB9"/>
+<path id="Blended pastel sage body" d="M236 110C302 107 349 146 367 200C379 238 391 294 380 330C371 361 336 372 240 372C155 372 115 362 104 332C91 297 101 248 114 208C133 147 173 112 236 110Z" fill="url(#paint0_linear_0_4)"/>
+<path id="Soft weighted base" opacity="0.3" d="M105 340C144 355 184 360 240 361C297 362 340 355 376 340C363 364 320 372 240 372C169 372 124 363 105 340Z" fill="#9DAFAF"/>
+<g id="Left mini hand">
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" fill="#C8DACE"/>
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g id="Right mini hand">
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" fill="#C8DACE"/>
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<path id="Left oval eye" d="M190 255C193.866 255 197 250.075 197 244C197 237.925 193.866 233 190 233C186.134 233 183 237.925 183 244C183 250.075 186.134 255 190 255Z" fill="#514951"/>
+<path id="Right oval eye" d="M290 255C293.866 255 297 250.075 297 244C297 237.925 293.866 233 290 233C286.134 233 283 237.925 283 244C283 250.075 286.134 255 290 255Z" fill="#514951"/>
+<path id="Small smile" d="M231 243C237.667 247.667 244.333 247.667 251 243" stroke="#514951" stroke-width="3" stroke-linecap="round"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_4" x1="97.9254" y1="109.838" x2="126.788" y2="372.605" gradientUnits="userSpaceOnUse">
+<stop stop-color="#E1EADF"/>
+<stop offset="0.43" stop-color="#D9E5D9"/>
+<stop offset="0.68" stop-color="#C8DACE"/>
+<stop offset="0.88" stop-color="#B6CEC3"/>
+<stop offset="1" stop-color="#A5BCB6"/>
+</linearGradient>
+</defs>
+</g>
+<text x="196" y="441" text-anchor="middle" font-size="12" fill="#8C9188">click mochi</text>
+<path d="M323 378 H429 M423 372 L429 378 L423 384" fill="none" stroke="#B4BDB0" stroke-width="1.5" stroke-linecap="round"/>
+<rect x="548" y="201" width="352" height="337" rx="20" fill="#FBFBF7" filter="url(#shadow)"/>
+<g transform="translate(556 205) scale(.085)">
+<g id="Mochi &#226;&#128;&#162; pastel sage">
+<path id="Soft shadow" opacity="0.4" d="M240 383C317.32 383 380 378.971 380 374C380 369.029 317.32 365 240 365C162.68 365 100 369.029 100 374C100 378.971 162.68 383 240 383Z" fill="#B7AFB9"/>
+<path id="Blended pastel sage body" d="M236 110C302 107 349 146 367 200C379 238 391 294 380 330C371 361 336 372 240 372C155 372 115 362 104 332C91 297 101 248 114 208C133 147 173 112 236 110Z" fill="url(#paint0_linear_0_4)"/>
+<path id="Soft weighted base" opacity="0.3" d="M105 340C144 355 184 360 240 361C297 362 340 355 376 340C363 364 320 372 240 372C169 372 124 363 105 340Z" fill="#9DAFAF"/>
+<g id="Left mini hand">
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" fill="#C8DACE"/>
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g id="Right mini hand">
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" fill="#C8DACE"/>
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<path id="Left oval eye" d="M190 255C193.866 255 197 250.075 197 244C197 237.925 193.866 233 190 233C186.134 233 183 237.925 183 244C183 250.075 186.134 255 190 255Z" fill="#514951"/>
+<path id="Right oval eye" d="M290 255C293.866 255 297 250.075 297 244C297 237.925 293.866 233 290 233C286.134 233 283 237.925 283 244C283 250.075 286.134 255 290 255Z" fill="#514951"/>
+<path id="Small smile" d="M231 243C237.667 247.667 244.333 247.667 251 243" stroke="#514951" stroke-width="3" stroke-linecap="round"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_4" x1="97.9254" y1="109.838" x2="126.788" y2="372.605" gradientUnits="userSpaceOnUse">
+<stop stop-color="#E1EADF"/>
+<stop offset="0.43" stop-color="#D9E5D9"/>
+<stop offset="0.68" stop-color="#C8DACE"/>
+<stop offset="0.88" stop-color="#B6CEC3"/>
+<stop offset="1" stop-color="#A5BCB6"/>
+</linearGradient>
+</defs>
+</g>
+<text x="607" y="235" font-size="14">mochi</text>
+<circle cx="611" cy="251" r="2.5" fill="#95AA98"/>
+<text x="621" y="255" font-size="10" fill="#90978B">let’s find your next listen</text>
+<path d="M869 226 L877 234 M877 226 L869 234" stroke="#93998E" stroke-width="1.4" stroke-linecap="round"/>
+<line x1="568" y1="273" x2="880" y2="273" stroke="#ECEEE7"/>
+<rect x="568" y="299" width="263" height="62" rx="14" fill="#EFF3EC"/>
+<text x="584" y="324" font-size="13">What do you feel like</text>
+<text x="584" y="344" font-size="13">listening to?</text>
+<rect x="568" y="379" width="67" height="30" rx="15" fill="#FBFBF7" stroke="#DCE4D8"/>
+<rect x="643" y="379" width="77" height="30" rx="15" fill="#FBFBF7" stroke="#DCE4D8"/>
+<rect x="728" y="379" width="108" height="30" rx="15" fill="#FBFBF7" stroke="#DCE4D8"/>
+<text x="601.5" y="398" text-anchor="middle" font-size="11">Focus</text>
+<text x="681.5" y="398" text-anchor="middle" font-size="11">Unwind</text>
+<text x="782" y="398" text-anchor="middle" font-size="11">Surprise me</text>
+<rect x="568" y="461" width="312" height="56" rx="14" fill="#F3F4EF"/>
+<text x="582" y="483" font-size="11" fill="#92988D">Tell me a mood, artist,</text>
+<text x="582" y="500" font-size="11" fill="#92988D">or song…</text>
+<circle cx="855" cy="489" r="15" fill="#DCE8D9"/>
+<path d="M855 495 V483 M851 487 L855 483 L859 487" fill="none" stroke="#60705E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="translate(801 529) scale(.19)">
+<g id="Mochi &#226;&#128;&#162; pastel sage">
+<path id="Soft shadow" opacity="0.4" d="M240 383C317.32 383 380 378.971 380 374C380 369.029 317.32 365 240 365C162.68 365 100 369.029 100 374C100 378.971 162.68 383 240 383Z" fill="#B7AFB9"/>
+<path id="Blended pastel sage body" d="M236 110C302 107 349 146 367 200C379 238 391 294 380 330C371 361 336 372 240 372C155 372 115 362 104 332C91 297 101 248 114 208C133 147 173 112 236 110Z" fill="url(#paint0_linear_0_4)"/>
+<path id="Soft weighted base" opacity="0.3" d="M105 340C144 355 184 360 240 361C297 362 340 355 376 340C363 364 320 372 240 372C169 372 124 363 105 340Z" fill="#9DAFAF"/>
+<g id="Left mini hand">
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" fill="#C8DACE"/>
+<path d="M104 284C95 290 89 299 96 304C101 309 109 306 114 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g id="Right mini hand">
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" fill="#C8DACE"/>
+<path d="M378 284C387 291 392 299 385 304C380 308 375 305 371 299" stroke="#8EA69D" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<path id="Left oval eye" d="M190 255C193.866 255 197 250.075 197 244C197 237.925 193.866 233 190 233C186.134 233 183 237.925 183 244C183 250.075 186.134 255 190 255Z" fill="#514951"/>
+<path id="Right oval eye" d="M290 255C293.866 255 297 250.075 297 244C297 237.925 293.866 233 290 233C286.134 233 283 237.925 283 244C283 250.075 286.134 255 290 255Z" fill="#514951"/>
+<path id="Small smile" d="M231 243C237.667 247.667 244.333 247.667 251 243" stroke="#514951" stroke-width="3" stroke-linecap="round"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_4" x1="97.9254" y1="109.838" x2="126.788" y2="372.605" gradientUnits="userSpaceOnUse">
+<stop stop-color="#E1EADF"/>
+<stop offset="0.43" stop-color="#D9E5D9"/>
+<stop offset="0.68" stop-color="#C8DACE"/>
+<stop offset="0.88" stop-color="#B6CEC3"/>
+<stop offset="1" stop-color="#A5BCB6"/>
+</linearGradient>
+</defs>
+</g>
+<text x="850" y="638" text-anchor="middle" font-size="11" fill="#8C9188">click again to close</text>
+</g></svg>
