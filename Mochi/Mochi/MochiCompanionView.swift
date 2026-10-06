@@ -199,6 +199,7 @@ struct MochiMascotPose {
     var smileDepth: CGFloat = 5
     var mouthOpen: CGFloat = 0
     var cheeks: CGFloat = 0
+    var leftWave: CGFloat = 0
     var rightWave: CGFloat = 0
     var closedEyes: CGFloat = 0
     var sleepAmount: CGFloat = 0
@@ -253,6 +254,9 @@ struct MochiMascotPose {
             pose.happyEyes = 1
             pose.smileDepth = 17
             pose.cheeks = 0.22
+            let sway = CGFloat(sin(beat))
+            pose.leftWave = 45 + sway * 35
+            pose.rightWave = -(45 - sway * 35)
         }
 
         if sleep > 0 {
@@ -268,6 +272,8 @@ struct MochiMascotPose {
             pose.lift *= 1 - sleep
             pose.happyEyes *= 1 - sleep
             pose.cheeks *= 1 - sleep
+            pose.leftWave *= 1 - sleep
+            pose.rightWave *= 1 - sleep
             pose.smileDepth += (5 - pose.smileDepth) * sleep
             return pose
         }
@@ -395,7 +401,7 @@ struct MochiMascotArtwork: View {
                     .init(color: Color(hex: 0xA5BCB6), location: 1)
                 ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
             context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
-            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 104, y: 284), CGFloat(0)),
+            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 104, y: 284), pose.leftWave),
                                           (MochiArt.rightHand, CGPoint(x: 378, y: 284), pose.rightWave)] {
                 var handContext = context
                 handContext.translateBy(x: anchor.x, y: anchor.y)
