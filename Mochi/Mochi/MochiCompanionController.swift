@@ -179,13 +179,14 @@ private final class MascotInteractionView: NSView {
     var onDragEnd: (() -> Void)?
     private var initialMouse = NSPoint.zero
     private var initialOrigin = NSPoint.zero
+    private var previousMouse = NSPoint.zero
     private var dragged = false
     private let artwork = NSHostingView(rootView: MochiMascotView())
     private var hoverTrackingArea: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        artwork.frame = bounds.insetBy(dx: 3, dy: 3)
+        artwork.frame = bounds
         artwork.autoresizingMask = [.width, .height]
         addSubview(artwork)
         toolTip = "Click to talk to Mochi. Drag to move."
@@ -196,7 +197,10 @@ private final class MascotInteractionView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-    func setAnimating(_ active: Bool) { artwork.rootView = MochiMascotView(isAnimating: active) }
+    func setAnimating(_ active: Bool) {
+        if active { artwork.rootView.isAnimating = true }
+        else { artwork.rootView = MochiMascotView(isAnimating: false) }
+    }
 
     override func updateTrackingAreas() {
         if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
@@ -209,7 +213,12 @@ private final class MascotInteractionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         guard artwork.rootView.isAnimating, window?.isVisible == true else { return }
-        artwork.rootView.hoverStartedAt = Date.timeIntervalSinceReferenceDate
+        artwork.rootView.isHovered = true
+        if !artwork.rootView.isHeld { artwork.rootView.hoverStartedAt = Date.timeIntervalSinceReferenceDate }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        artwork.rootView.isHovered = false
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(point) ? self : nil }
@@ -218,9 +227,12 @@ private final class MascotInteractionView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         initialMouse = NSEvent.mouseLocation
+        previousMouse = initialMouse
         initialOrigin = window?.frame.origin ?? .zero
         dragged = false
-        setAnimating(false)
+        artwork.rootView.hoverStartedAt = nil
+        artwork.rootView.releasedAt = nil
+        artwork.rootView.isHeld = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -228,6 +240,8 @@ private final class MascotInteractionView: NSView {
         let dx = mouse.x - initialMouse.x, dy = mouse.y - initialMouse.y
         guard dragged || hypot(dx, dy) >= 4 else { return }
         dragged = true
+        artwork.rootView.dragLean = min(max((mouse.x - previousMouse.x) / 12, -1), 1)
+        previousMouse = mouse
         NSCursor.closedHand.set()
         onMove?(NSPoint(x: initialOrigin.x + dx, y: initialOrigin.y + dy))
     }
@@ -235,6 +249,10 @@ private final class MascotInteractionView: NSView {
     override func mouseUp(with event: NSEvent) {
         NSCursor.openHand.set()
         setAnimating(window?.isVisible == true)
+        artwork.rootView.isHeld = false
+        artwork.rootView.dragLean = 0
+        artwork.rootView.isHovered = window?.frame.contains(NSEvent.mouseLocation) == true
+        artwork.rootView.releasedAt = Date.timeIntervalSinceReferenceDate
         if dragged { onDragEnd?() }
         else { onClick?() }
     }

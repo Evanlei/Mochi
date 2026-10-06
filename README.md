@@ -87,7 +87,7 @@ The playback client gets its access token from the existing authentication model
 
 ## Floating Mochi
 
-Mochi gently bobs and blinks, with no ground shadow, and makes a small hop when the pointer enters its area. Animation pauses when hidden or dragged, and turns off when macOS Reduce Motion is enabled. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background.
+Mochi breathes with a gentle change in body shape, blinks, and glances around, with no ground shadow. Hovering triggers a squash-and-stretch greeting, smiling eyes, and a hand wave. Holding or dragging stretches its body with a surprised face; releasing it triggers a soft settling bounce. Animation pauses when hidden, and turns off when macOS Reduce Motion is enabled. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background.
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
@@ -169,7 +169,7 @@ The smaller authentication helpers are grouped by their role:
 
 Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
-`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, its local request state, and vector drawing of the supplied character. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
+`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, its local request state, and vector drawing of the supplied character. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
 
 ## Planned recommendation architecture
 

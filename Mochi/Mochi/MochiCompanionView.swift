@@ -160,45 +160,171 @@ private struct CompanionGlass: NSViewRepresentable {
 
 struct MochiMascotView: View {
     var isAnimating = true
+    var isHovered = false
+    var isHeld = false
+    var dragLean: CGFloat = 0
     var hoverStartedAt: TimeInterval?
+    var releasedAt: TimeInterval?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !isAnimating || reduceMotion)) { timeline in
-            let moving = isAnimating && !reduceMotion
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let bob = moving ? sin(time * .pi / 2) * 6 : 0
-            let elapsed = time - (hoverStartedAt ?? -1)
-            let hop = moving && (0...0.42).contains(elapsed) ? sin(elapsed / 0.42 * .pi) * 12 : 0
-            let phase = time.truncatingRemainder(dividingBy: 5.5)
-            let blink = moving && phase < 0.18 ? max(0.08, abs(phase - 0.09) / 0.09) : 1
-            Canvas { context, size in
-                // Crop the SVG's empty margins, then scale its original coordinates uniformly.
-                // Leave headroom for the hover hop without moving the window or its hit area.
-                let scale = min(size.width / 310, size.height / 300)
-                context.translateBy(x: (size.width - 310 * scale) / 2, y: (size.height - 300 * scale) / 2)
-                context.scaleBy(x: scale, y: scale)
-                context.translateBy(x: -85, y: -90 + bob - hop)
+            MochiMascotArtwork(pose: isAnimating && !reduceMotion
+                ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate,
+                                    isHovered: isHovered, isHeld: isHeld, dragLean: dragLean,
+                                    hoverStartedAt: hoverStartedAt, releasedAt: releasedAt)
+                : MochiMascotPose())
+        }
+        .accessibilityHidden(true)
+    }
+}
 
-                context.fill(MochiArt.body, with: .linearGradient(
-                    Gradient(stops: [
-                        .init(color: Color(hex: 0xE1EADF), location: 0),
-                        .init(color: Color(hex: 0xD9E5D9), location: 0.43),
-                        .init(color: Color(hex: 0xC8DACE), location: 0.68),
-                        .init(color: Color(hex: 0xB6CEC3), location: 0.88),
-                        .init(color: Color(hex: 0xA5BCB6), location: 1)
-                    ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
-                context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
-                for hand in [MochiArt.leftHand, MochiArt.rightHand] {
-                    context.fill(hand, with: .color(Color(hex: 0xC8DACE)))
-                    context.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+// Each pose changes the body, face and hands independently. All motion stays inside the panel.
+struct MochiMascotPose {
+    var scaleX: CGFloat = 1
+    var scaleY: CGFloat = 1
+    var tilt: CGFloat = 0
+    var lift: CGFloat = 0
+    var lookX: CGFloat = 0
+    var eyeHeight: CGFloat = 1
+    var eyeWidth: CGFloat = 1
+    var happyEyes: CGFloat = 0
+    var smileDepth: CGFloat = 5
+    var mouthOpen: CGFloat = 0
+    var cheeks: CGFloat = 0
+    var rightWave: CGFloat = 0
+
+    static func at(time: TimeInterval, isHovered: Bool = false, isHeld: Bool = false,
+                   dragLean: CGFloat = 0, hoverStartedAt: TimeInterval? = nil,
+                   releasedAt: TimeInterval? = nil) -> Self {
+        var pose = Self()
+        let breath = CGFloat(sin(time * .pi / 2.4))
+        pose.scaleX = 1 - breath * 0.022
+        pose.scaleY = 1 + breath * 0.028
+        pose.tilt = CGFloat(sin(time * .pi / 4.5)) * 1.4
+        // A short glance left and right, then back to the center.
+        pose.lookX = keyframe(time.truncatingRemainder(dividingBy: 11),
+                             [(0, 0), (4, 0), (4.5, -6), (5.5, -6), (6.1, 6), (7.1, 6), (7.7, 0), (11, 0)])
+        let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
+        pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
+
+        if isHovered {
+            pose.lookX = 0
+            pose.eyeWidth = 1.15
+            pose.smileDepth = 9
+            pose.cheeks = 0.28
+        }
+        if let hoverStartedAt {
+            let age = time - hoverStartedAt
+            if (0...1.5).contains(age) {
+                // Crouch, stretch upward, land softly, then wave with a happy expression.
+                pose.scaleX *= keyframe(age, [(0, 1), (0.12, 1.12), (0.25, 0.94), (0.45, 1.02), (0.58, 1.08), (0.8, 1)])
+                pose.scaleY *= keyframe(age, [(0, 1), (0.12, 0.87), (0.25, 1.12), (0.45, 0.98), (0.58, 0.92), (0.8, 1)])
+                pose.lift = keyframe(age, [(0, 0), (0.12, 0), (0.3, 12), (0.48, 0), (1.5, 0)])
+                pose.tilt += keyframe(age, [(0, 0), (0.4, 0), (0.6, -4), (0.9, 3), (1.5, 0)])
+                pose.happyEyes = keyframe(age, [(0, 0), (0.45, 0), (0.65, 1), (1.1, 1), (1.5, 0)])
+                pose.smileDepth = 5 + 6 * keyframe(age, [(0, 0), (0.4, 1), (1.1, 1), (1.5, 0)])
+                if age > 0.45 {
+                    let wave = (age - 0.45) / 1.05
+                    pose.rightWave = -CGFloat(sin(wave * .pi) * (50 + 15 * sin(wave * 4 * .pi)))
                 }
-                for x: CGFloat in [183, 283] {
-                    let height = 22 * blink
-                    context.fill(Path(ellipseIn: CGRect(x: x, y: 244 - height / 2, width: 14, height: height)), with: .color(Color.mochiInk))
-                }
-                context.stroke(MochiArt.smile, with: .color(Color.mochiInk), style: StrokeStyle(lineWidth: 3, lineCap: .round))
             }
+        }
+        if let releasedAt {
+            let age = time - releasedAt
+            if (0...0.6).contains(age) {
+                pose.scaleX *= keyframe(age, [(0, 1.13), (0.2, 0.96), (0.4, 1.025), (0.6, 1)])
+                pose.scaleY *= keyframe(age, [(0, 0.86), (0.2, 1.045), (0.4, 0.98), (0.6, 1)])
+            }
+        }
+        if isHeld {
+            pose.scaleX = 0.94
+            pose.scaleY = 1.08
+            pose.tilt = dragLean * 6
+            pose.lift = 0
+            pose.lookX = dragLean * 8
+            pose.eyeHeight = 1.22
+            pose.eyeWidth = 1.18
+            pose.happyEyes = 0
+            pose.mouthOpen = 1
+            pose.cheeks = 0
+            pose.rightWave = 0
+        }
+        return pose
+    }
+
+    private static func keyframe(_ time: TimeInterval, _ frames: [(TimeInterval, CGFloat)]) -> CGFloat {
+        guard let first = frames.first, let last = frames.last else { return 0 }
+        if time <= first.0 { return first.1 }
+        for (left, right) in zip(frames, frames.dropFirst()) where time <= right.0 {
+            let progress = CGFloat((time - left.0) / (right.0 - left.0))
+            let eased = progress * progress * (3 - 2 * progress)
+            return left.1 + (right.1 - left.1) * eased
+        }
+        return last.1
+    }
+}
+
+struct MochiMascotArtwork: View {
+    let pose: MochiMascotPose
+
+    var body: some View {
+        Canvas { context, size in
+            // Extra margin contains stretched poses and the waving hand, without changing the hit area.
+            let scale = min(size.width / 360, size.height / 345)
+            context.translateBy(x: (size.width - 360 * scale) / 2, y: (size.height - 345 * scale) / 2)
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: -60, y: -45 - pose.lift)
+            context.translateBy(x: 240, y: 350)
+            context.rotate(by: .degrees(Double(pose.tilt)))
+            context.scaleBy(x: pose.scaleX, y: pose.scaleY)
+            context.translateBy(x: -240, y: -350)
+
+            context.fill(MochiArt.body, with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: Color(hex: 0xE1EADF), location: 0),
+                    .init(color: Color(hex: 0xD9E5D9), location: 0.43),
+                    .init(color: Color(hex: 0xC8DACE), location: 0.68),
+                    .init(color: Color(hex: 0xB6CEC3), location: 0.88),
+                    .init(color: Color(hex: 0xA5BCB6), location: 1)
+                ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
+            context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
+            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 104, y: 284), CGFloat(0)),
+                                          (MochiArt.rightHand, CGPoint(x: 378, y: 284), pose.rightWave)] {
+                var handContext = context
+                handContext.translateBy(x: anchor.x, y: anchor.y)
+                handContext.rotate(by: .degrees(Double(angle)))
+                handContext.translateBy(x: -anchor.x, y: -anchor.y)
+                handContext.fill(hand, with: .color(Color(hex: 0xC8DACE)))
+                handContext.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            }
+
+            var face = context
+            face.translateBy(x: pose.lookX, y: 0)
+            for x: CGFloat in [190, 290] {
+                let height = 22 * pose.eyeHeight
+                let width = 14 * pose.eyeWidth
+                face.fill(Path(ellipseIn: CGRect(x: x - width / 2, y: 244 - height / 2, width: width, height: height)),
+                          with: .color(Color.mochiInk.opacity(Double(1 - pose.happyEyes))))
+                let happyEye = Path { p in
+                    p.move(to: CGPoint(x: x - 8, y: 245))
+                    p.addQuadCurve(to: CGPoint(x: x + 8, y: 245), control: CGPoint(x: x, y: 232))
+                }
+                face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes))),
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+            }
+            for x: CGFloat in [173, 291] {
+                face.fill(Path(ellipseIn: CGRect(x: x, y: 263, width: 20, height: 9)),
+                          with: .color(Color(hex: 0xDBAFA9).opacity(Double(pose.cheeks))))
+            }
+            let smile = Path { p in
+                p.move(to: CGPoint(x: 231, y: 243))
+                p.addQuadCurve(to: CGPoint(x: 251, y: 243), control: CGPoint(x: 241, y: 243 + pose.smileDepth))
+            }
+            face.stroke(smile, with: .color(Color.mochiInk.opacity(Double(1 - pose.mouthOpen))),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            face.fill(Path(ellipseIn: CGRect(x: 237, y: 241, width: 8, height: 10)),
+                      with: .color(Color.mochiInk.opacity(Double(pose.mouthOpen))))
         }
         .accessibilityHidden(true)
     }
@@ -233,10 +359,7 @@ private enum MochiArt {
         p.addCurve(to: CGPoint(x: 385, y: 304), control1: CGPoint(x: 387, y: 291), control2: CGPoint(x: 392, y: 299))
         p.addCurve(to: CGPoint(x: 371, y: 299), control1: CGPoint(x: 380, y: 308), control2: CGPoint(x: 375, y: 305))
     }
-    static let smile = Path { p in
-        p.move(to: CGPoint(x: 231, y: 243))
-        p.addCurve(to: CGPoint(x: 251, y: 243), control1: CGPoint(x: 237.667, y: 247.667), control2: CGPoint(x: 244.333, y: 247.667))
-    }
+
 }
 
 private extension Color {
