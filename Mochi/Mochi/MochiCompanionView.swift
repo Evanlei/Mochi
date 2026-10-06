@@ -168,7 +168,7 @@ struct MochiMascotView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !isAnimating || reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isAnimating || reduceMotion)) { timeline in
             MochiMascotArtwork(pose: isAnimating && !reduceMotion
                 ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate,
                                     isHovered: isHovered, isHeld: isHeld, dragLean: dragLean,
@@ -199,52 +199,56 @@ struct MochiMascotPose {
                    releasedAt: TimeInterval? = nil) -> Self {
         var pose = Self()
         let breath = CGFloat(sin(time * .pi / 2.4))
-        pose.scaleX = 1 - breath * 0.022
-        pose.scaleY = 1 + breath * 0.028
-        pose.tilt = CGFloat(sin(time * .pi / 4.5)) * 1.4
+        pose.scaleX = 1 - breath * 0.045
+        pose.scaleY = 1 + breath * 0.055
+        pose.tilt = CGFloat(sin(time * .pi / 4.5)) * 2
         // A short glance left and right, then back to the center.
         pose.lookX = keyframe(time.truncatingRemainder(dividingBy: 11),
-                             [(0, 0), (4, 0), (4.5, -6), (5.5, -6), (6.1, 6), (7.1, 6), (7.7, 0), (11, 0)])
+                             [(0, 0), (4, 0), (4.5, -8), (5.5, -8), (6.1, 8), (7.1, 8), (7.7, 0), (11, 0)])
         let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
         pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
 
         if isHovered {
             pose.lookX = 0
-            pose.eyeWidth = 1.15
-            pose.smileDepth = 9
-            pose.cheeks = 0.28
+            pose.eyeWidth = 1.3
+            pose.eyeHeight *= 1.12
+            pose.smileDepth = 15
+            pose.cheeks = 0.38
         }
         if let hoverStartedAt {
             let age = time - hoverStartedAt
             if (0...1.5).contains(age) {
                 // Crouch, stretch upward, land softly, then wave with a happy expression.
-                pose.scaleX *= keyframe(age, [(0, 1), (0.12, 1.12), (0.25, 0.94), (0.45, 1.02), (0.58, 1.08), (0.8, 1)])
-                pose.scaleY *= keyframe(age, [(0, 1), (0.12, 0.87), (0.25, 1.12), (0.45, 0.98), (0.58, 0.92), (0.8, 1)])
+                let reaction = keyframe(age, [(0, 0), (0.06, 1), (1.1, 1), (1.5, 0)])
+                let width = keyframe(age, [(0, 1), (0.12, 1.24), (0.25, 0.85), (0.45, 1.04), (0.58, 1.15), (0.8, 1)])
+                let height = keyframe(age, [(0, 1), (0.12, 0.74), (0.25, 1.22), (0.45, 0.96), (0.58, 0.84), (0.8, 1)])
+                pose.scaleX += (width - pose.scaleX) * reaction
+                pose.scaleY += (height - pose.scaleY) * reaction
                 pose.lift = keyframe(age, [(0, 0), (0.12, 0), (0.3, 12), (0.48, 0), (1.5, 0)])
-                pose.tilt += keyframe(age, [(0, 0), (0.4, 0), (0.6, -4), (0.9, 3), (1.5, 0)])
+                pose.tilt += keyframe(age, [(0, 0), (0.4, 0), (0.6, -7), (0.9, 5), (1.5, 0)])
                 pose.happyEyes = keyframe(age, [(0, 0), (0.45, 0), (0.65, 1), (1.1, 1), (1.5, 0)])
-                pose.smileDepth = 5 + 6 * keyframe(age, [(0, 0), (0.4, 1), (1.1, 1), (1.5, 0)])
+                pose.smileDepth = 5 + 12 * keyframe(age, [(0, 0), (0.4, 1), (1.1, 1), (1.5, 0)])
                 if age > 0.45 {
                     let wave = (age - 0.45) / 1.05
-                    pose.rightWave = -CGFloat(sin(wave * .pi) * (50 + 15 * sin(wave * 4 * .pi)))
+                    pose.rightWave = -CGFloat(sin(wave * .pi) * (65 + 20 * sin(wave * 4 * .pi)))
                 }
             }
         }
         if let releasedAt {
             let age = time - releasedAt
-            if (0...0.6).contains(age) {
-                pose.scaleX *= keyframe(age, [(0, 1.13), (0.2, 0.96), (0.4, 1.025), (0.6, 1)])
-                pose.scaleY *= keyframe(age, [(0, 0.86), (0.2, 1.045), (0.4, 0.98), (0.6, 1)])
+            if (0...0.7).contains(age) {
+                pose.scaleX *= keyframe(age, [(0, 1.22), (0.22, 0.94), (0.45, 1.045), (0.7, 1)])
+                pose.scaleY *= keyframe(age, [(0, 0.75), (0.22, 1.08), (0.45, 0.96), (0.7, 1)])
             }
         }
         if isHeld {
-            pose.scaleX = 0.94
-            pose.scaleY = 1.08
-            pose.tilt = dragLean * 6
+            pose.scaleX = 0.88
+            pose.scaleY = 1.16
+            pose.tilt = dragLean * 9
             pose.lift = 0
             pose.lookX = dragLean * 8
-            pose.eyeHeight = 1.22
-            pose.eyeWidth = 1.18
+            pose.eyeHeight = 1.4
+            pose.eyeWidth = 1.35
             pose.happyEyes = 0
             pose.mouthOpen = 1
             pose.cheeks = 0
@@ -271,10 +275,10 @@ struct MochiMascotArtwork: View {
     var body: some View {
         Canvas { context, size in
             // Extra margin contains stretched poses and the waving hand, without changing the hit area.
-            let scale = min(size.width / 360, size.height / 345)
-            context.translateBy(x: (size.width - 360 * scale) / 2, y: (size.height - 345 * scale) / 2)
+            let scale = min(size.width / 420, size.height / 360)
+            context.translateBy(x: (size.width - 420 * scale) / 2, y: (size.height - 360 * scale) / 2)
             context.scaleBy(x: scale, y: scale)
-            context.translateBy(x: -60, y: -45 - pose.lift)
+            context.translateBy(x: -30, y: -30 - pose.lift)
             context.translateBy(x: 240, y: 350)
             context.rotate(by: .degrees(Double(pose.tilt)))
             context.scaleBy(x: pose.scaleX, y: pose.scaleY)
@@ -294,6 +298,8 @@ struct MochiMascotArtwork: View {
                 var handContext = context
                 handContext.translateBy(x: anchor.x, y: anchor.y)
                 handContext.rotate(by: .degrees(Double(angle)))
+                let handScale = 1 + min(abs(angle) / 65, 1) * 0.6
+                handContext.scaleBy(x: handScale, y: handScale)
                 handContext.translateBy(x: -anchor.x, y: -anchor.y)
                 handContext.fill(hand, with: .color(Color(hex: 0xC8DACE)))
                 handContext.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
@@ -307,11 +313,11 @@ struct MochiMascotArtwork: View {
                 face.fill(Path(ellipseIn: CGRect(x: x - width / 2, y: 244 - height / 2, width: width, height: height)),
                           with: .color(Color.mochiInk.opacity(Double(1 - pose.happyEyes))))
                 let happyEye = Path { p in
-                    p.move(to: CGPoint(x: x - 8, y: 245))
-                    p.addQuadCurve(to: CGPoint(x: x + 8, y: 245), control: CGPoint(x: x, y: 232))
+                    p.move(to: CGPoint(x: x - 10, y: 245))
+                    p.addQuadCurve(to: CGPoint(x: x + 10, y: 245), control: CGPoint(x: x, y: 229))
                 }
                 face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes))),
-                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
             }
             for x: CGFloat in [173, 291] {
                 face.fill(Path(ellipseIn: CGRect(x: x, y: 263, width: 20, height: 9)),
@@ -323,7 +329,7 @@ struct MochiMascotArtwork: View {
             }
             face.stroke(smile, with: .color(Color.mochiInk.opacity(Double(1 - pose.mouthOpen))),
                         style: StrokeStyle(lineWidth: 3, lineCap: .round))
-            face.fill(Path(ellipseIn: CGRect(x: 237, y: 241, width: 8, height: 10)),
+            face.fill(Path(ellipseIn: CGRect(x: 235, y: 240, width: 12, height: 14)),
                       with: .color(Color.mochiInk.opacity(Double(pose.mouthOpen))))
         }
         .accessibilityHidden(true)

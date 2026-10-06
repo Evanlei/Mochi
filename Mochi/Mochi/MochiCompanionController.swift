@@ -30,7 +30,7 @@ final class MochiCompanionController: ObservableObject {
     private var screenObserver: NSObjectProtocol?
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
-    private let mascotSize = NSSize(width: 94, height: 88)
+    private let mascotSize = NSSize(width: 108, height: 100)
     private let cardSize = MochiCompanionCard.size
 
     init(defaults: UserDefaults = .standard) {
