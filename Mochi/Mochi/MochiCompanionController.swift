@@ -181,6 +181,7 @@ private final class MascotInteractionView: NSView {
     private var initialOrigin = NSPoint.zero
     private var dragged = false
     private let artwork = NSHostingView(rootView: MochiMascotView())
+    private var hoverTrackingArea: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -196,6 +197,21 @@ private final class MascotInteractionView: NSView {
 
     required init?(coder: NSCoder) { nil }
     func setAnimating(_ active: Bool) { artwork.rootView = MochiMascotView(isAnimating: active) }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard artwork.rootView.isAnimating, window?.isVisible == true else { return }
+        artwork.rootView.hoverStartedAt = Date.timeIntervalSinceReferenceDate
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(point) ? self : nil }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }

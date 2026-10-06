@@ -160,6 +160,7 @@ private struct CompanionGlass: NSViewRepresentable {
 
 struct MochiMascotView: View {
     var isAnimating = true
+    var hoverStartedAt: TimeInterval?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -167,14 +168,17 @@ struct MochiMascotView: View {
             let moving = isAnimating && !reduceMotion
             let time = timeline.date.timeIntervalSinceReferenceDate
             let bob = moving ? sin(time * .pi / 2) * 6 : 0
+            let elapsed = time - (hoverStartedAt ?? -1)
+            let hop = moving && (0...0.42).contains(elapsed) ? sin(elapsed / 0.42 * .pi) * 12 : 0
             let phase = time.truncatingRemainder(dividingBy: 5.5)
             let blink = moving && phase < 0.18 ? max(0.08, abs(phase - 0.09) / 0.09) : 1
             Canvas { context, size in
                 // Crop the SVG's empty margins, then scale its original coordinates uniformly.
-                let scale = min(size.width / 310, size.height / 288)
-                context.translateBy(x: (size.width - 310 * scale) / 2, y: (size.height - 288 * scale) / 2)
+                // Leave headroom for the hover hop without moving the window or its hit area.
+                let scale = min(size.width / 310, size.height / 300)
+                context.translateBy(x: (size.width - 310 * scale) / 2, y: (size.height - 300 * scale) / 2)
                 context.scaleBy(x: scale, y: scale)
-                context.translateBy(x: -85, y: -100 + bob)
+                context.translateBy(x: -85, y: -90 + bob - hop)
 
                 context.fill(MochiArt.body, with: .linearGradient(
                     Gradient(stops: [

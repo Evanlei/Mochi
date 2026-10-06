@@ -87,7 +87,7 @@ The playback client gets its access token from the existing authentication model
 
 ## Floating Mochi
 
-Mochi gently bobs and blinks, with no ground shadow. Animation pauses when hidden or dragged, and turns off when macOS Reduce Motion is enabled. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background.
+Mochi gently bobs and blinks, with no ground shadow, and makes a small hop when the pointer enters its area. Animation pauses when hidden or dragged, and turns off when macOS Reduce Motion is enabled. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background.
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
