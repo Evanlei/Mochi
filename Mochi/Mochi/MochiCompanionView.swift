@@ -162,19 +162,23 @@ struct MochiMascotView: View {
     var isAnimating = true
     var isHovered = false
     var isHeld = false
+    var isEngaged = false
     var dragLean: CGFloat = 0
     var hoverStartedAt: TimeInterval?
     var releasedAt: TimeInterval?
     var idleStartedAt = Date.timeIntervalSinceReferenceDate
+    var wakeStartedAt: TimeInterval?
+    var wakeStrength: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isAnimating || reduceMotion)) { timeline in
-            MochiMascotArtwork(pose: isAnimating && !reduceMotion
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1.0 / 30, paused: !isAnimating)) { timeline in
+            MochiMascotArtwork(pose: isAnimating
                 ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate,
-                                    isHovered: isHovered, isHeld: isHeld, dragLean: dragLean,
+                                    isHovered: isHovered, isHeld: isHeld, isEngaged: isEngaged, dragLean: dragLean,
                                     hoverStartedAt: hoverStartedAt, releasedAt: releasedAt,
-                                    idleStartedAt: idleStartedAt)
+                                    idleStartedAt: idleStartedAt, wakeStartedAt: wakeStartedAt,
+                                    wakeStrength: wakeStrength, animate: !reduceMotion)
                 : MochiMascotPose())
         }
         .accessibilityHidden(true)
@@ -195,11 +199,30 @@ struct MochiMascotPose {
     var mouthOpen: CGFloat = 0
     var cheeks: CGFloat = 0
     var rightWave: CGFloat = 0
+    var closedEyes: CGFloat = 0
+    var sleepAmount: CGFloat = 0
+    var sleepPhase: CGFloat = 0
 
-    static func at(time: TimeInterval, isHovered: Bool = false, isHeld: Bool = false,
+    static let sleepDelay: TimeInterval = 90
+
+    static func at(time: TimeInterval, isHovered: Bool = false, isHeld: Bool = false, isEngaged: Bool = false,
                    dragLean: CGFloat = 0, hoverStartedAt: TimeInterval? = nil,
-                   releasedAt: TimeInterval? = nil, idleStartedAt: TimeInterval? = nil) -> Self {
+                   releasedAt: TimeInterval? = nil, idleStartedAt: TimeInterval? = nil,
+                   wakeStartedAt: TimeInterval? = nil, wakeStrength: CGFloat = 0, animate: Bool = true) -> Self {
         var pose = Self()
+        let idleDuration = idleStartedAt.map { max(0, time - $0) } ?? 0
+        let sleep = !isHovered && !isHeld && !isEngaged
+            ? keyframe(idleDuration, [(0, 0), (sleepDelay, 0), (sleepDelay + 3, 1)]) : 0
+        if !animate {
+            // Reduce Motion still permits the sleep state, with a static pose and static z's.
+            if sleep > 0 {
+                pose.scaleX = 1.07
+                pose.scaleY = 0.85
+                pose.closedEyes = 1
+                pose.sleepAmount = 1
+            }
+            return pose
+        }
         let breath = CGFloat(sin(time * .pi / 2.4))
         pose.scaleX = 1 - breath * 0.045
         pose.scaleY = 1 + breath * 0.055
@@ -210,7 +233,20 @@ struct MochiMascotPose {
         let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
         pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
 
-        if !isHovered, !isHeld, let idleStartedAt, time - idleStartedAt >= 26 {
+        if sleep > 0 {
+            let slowBreath = CGFloat(sin(time * .pi / 4))
+            pose.scaleX += (1.07 - slowBreath * 0.012 - pose.scaleX) * sleep
+            pose.scaleY += (0.85 + slowBreath * 0.018 - pose.scaleY) * sleep
+            pose.tilt += (-3 + slowBreath * 0.5 - pose.tilt) * sleep
+            pose.lookX *= 1 - sleep
+            pose.eyeHeight *= 1 - sleep * 0.9
+            pose.closedEyes = sleep
+            pose.sleepAmount = sleep
+            pose.sleepPhase = CGFloat(time / 2.8)
+            return pose
+        }
+
+        if !isHovered, !isHeld, !isEngaged, let idleStartedAt, time - idleStartedAt >= 26 {
             let age = (time - idleStartedAt).truncatingRemainder(dividingBy: 26)
             if age <= 1.2 {
                 // A brief spontaneous hop: crouch, stretch into the air, squash on landing.
@@ -259,6 +295,21 @@ struct MochiMascotPose {
                 pose.scaleY *= keyframe(age, [(0, 0.75), (0.22, 1.08), (0.45, 0.96), (0.7, 1)])
             }
         }
+        if !isHeld, let wakeStartedAt {
+            let age = time - wakeStartedAt
+            if (0...1.2).contains(age) {
+                let reaction = wakeStrength * keyframe(age, [(0, 1), (0.95, 1), (1.2, 0)])
+                let width = keyframe(age, [(0, 1.07), (0.3, 0.88), (0.5, 0.88), (0.8, 1.1), (1.2, 1)])
+                let height = keyframe(age, [(0, 0.85), (0.3, 1.16), (0.5, 1.16), (0.8, 0.92), (1.2, 1)])
+                pose.scaleX += (width - pose.scaleX) * reaction
+                pose.scaleY += (height - pose.scaleY) * reaction
+                pose.closedEyes = wakeStrength * keyframe(age, [(0, 1), (0.45, 0.7), (0.65, 0), (0.82, 1), (0.95, 0), (1.2, 0)])
+                pose.sleepAmount = wakeStrength * keyframe(age, [(0, 1), (0.3, 0), (1.2, 0)])
+                pose.sleepPhase = CGFloat(time / 2.8)
+                pose.lift = 0
+                pose.rightWave = 0
+            }
+        }
         if isHeld {
             pose.scaleX = 0.88
             pose.scaleY = 1.16
@@ -296,7 +347,9 @@ struct MochiMascotArtwork: View {
             let scale = min(size.width / 420, size.height / 360)
             context.translateBy(x: (size.width - 420 * scale) / 2, y: (size.height - 360 * scale) / 2)
             context.scaleBy(x: scale, y: scale)
-            context.translateBy(x: -30, y: -30 - pose.lift)
+            context.translateBy(x: -30, y: -30)
+            let markers = context
+            context.translateBy(x: 0, y: -pose.lift)
             context.translateBy(x: 240, y: 350)
             context.rotate(by: .degrees(Double(pose.tilt)))
             context.scaleBy(x: pose.scaleX, y: pose.scaleY)
@@ -329,13 +382,19 @@ struct MochiMascotArtwork: View {
                 let height = 22 * pose.eyeHeight
                 let width = 14 * pose.eyeWidth
                 face.fill(Path(ellipseIn: CGRect(x: x - width / 2, y: 244 - height / 2, width: width, height: height)),
-                          with: .color(Color.mochiInk.opacity(Double(1 - pose.happyEyes))))
+                          with: .color(Color.mochiInk.opacity(Double((1 - pose.happyEyes) * (1 - pose.closedEyes)))))
                 let happyEye = Path { p in
                     p.move(to: CGPoint(x: x - 10, y: 245))
                     p.addQuadCurve(to: CGPoint(x: x + 10, y: 245), control: CGPoint(x: x, y: 229))
                 }
-                face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes))),
+                face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes * (1 - pose.closedEyes)))),
                             style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                let closedEye = Path { p in
+                    p.move(to: CGPoint(x: x - 9, y: 244))
+                    p.addQuadCurve(to: CGPoint(x: x + 9, y: 244), control: CGPoint(x: x, y: 250))
+                }
+                face.stroke(closedEye, with: .color(Color.mochiInk.opacity(Double(pose.closedEyes))),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
             }
             for x: CGFloat in [173, 291] {
                 face.fill(Path(ellipseIn: CGRect(x: x, y: 263, width: 20, height: 9)),
@@ -349,6 +408,15 @@ struct MochiMascotArtwork: View {
                         style: StrokeStyle(lineWidth: 3, lineCap: .round))
             face.fill(Path(ellipseIn: CGRect(x: 235, y: 240, width: 12, height: 14)),
                       with: .color(Color.mochiInk.opacity(Double(pose.mouthOpen))))
+            if pose.sleepAmount > 0 {
+                for index in 0..<3 {
+                    let phase = (pose.sleepPhase + CGFloat(index) / 3 + 0.15).truncatingRemainder(dividingBy: 1)
+                    let opacity = pose.sleepAmount * sin(phase * .pi) * 0.8
+                    let letter = Text("z").font(.system(size: 20 + phase * 8, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.mochiInk.opacity(Double(opacity)))
+                    markers.draw(letter, at: CGPoint(x: 315 + phase * 48, y: 128 - phase * 70))
+                }
+            }
         }
         .accessibilityHidden(true)
     }

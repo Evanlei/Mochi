@@ -89,11 +89,13 @@ final class MochiCompanionController: ObservableObject {
         guard isVisible, let cardPanel else { return }
         if cardPanel.isVisible { closeCard(); return }
         positionCard()
+        (mascotPanel?.contentView as? MascotInteractionView)?.setEngaged(true)
         cardPanel.makeKeyAndOrderFront(nil)
         monitorOutsideClicks()
     }
 
     func closeCard() {
+        (mascotPanel?.contentView as? MascotInteractionView)?.setEngaged(false)
         cardPanel?.orderOut(nil)
         removeMouseMonitors()
     }
@@ -197,6 +199,24 @@ private final class MascotInteractionView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+    func setEngaged(_ engaged: Bool) {
+        recordInteraction()
+        artwork.rootView.isEngaged = engaged
+    }
+
+    private func recordInteraction() {
+        let now = Date.timeIntervalSinceReferenceDate
+        let pose = artwork.rootView
+        if !pose.isHovered, !pose.isHeld, !pose.isEngaged {
+            let sleep = min(max((now - pose.idleStartedAt - MochiMascotPose.sleepDelay) / 3, 0), 1)
+            if sleep > 0 {
+                artwork.rootView.wakeStartedAt = now
+                artwork.rootView.wakeStrength = sleep
+            }
+        }
+        artwork.rootView.idleStartedAt = now
+    }
+
     func setAnimating(_ active: Bool) {
         if active {
             artwork.rootView.isAnimating = true
@@ -216,8 +236,13 @@ private final class MascotInteractionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         guard artwork.rootView.isAnimating, window?.isVisible == true else { return }
+        recordInteraction()
         artwork.rootView.isHovered = true
-        if !artwork.rootView.isHeld { artwork.rootView.hoverStartedAt = Date.timeIntervalSinceReferenceDate }
+        if !artwork.rootView.isHeld {
+            let now = Date.timeIntervalSinceReferenceDate
+            let waking = artwork.rootView.wakeStartedAt.map { now - $0 < 1.2 } ?? false
+            artwork.rootView.hoverStartedAt = now + (waking ? 1.2 : 0)
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -234,6 +259,7 @@ private final class MascotInteractionView: NSView {
         previousMouse = initialMouse
         initialOrigin = window?.frame.origin ?? .zero
         dragged = false
+        recordInteraction()
         artwork.rootView.hoverStartedAt = nil
         artwork.rootView.releasedAt = nil
         artwork.rootView.isHeld = true
