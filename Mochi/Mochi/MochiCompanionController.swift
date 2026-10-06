@@ -30,6 +30,8 @@ final class MochiCompanionController: ObservableObject {
     private var screenObserver: NSObjectProtocol?
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var musicSubscription: AnyCancellable?
+    private var isMusicPlaying = false
     private let mascotSize = NSSize(width: 108, height: 100)
     private let cardSize = MochiCompanionCard.size
 
@@ -47,6 +49,7 @@ final class MochiCompanionController: ObservableObject {
         interaction.onClick = { [weak self] in self?.toggleCard() }
         interaction.onMove = { [weak self] origin in self?.moveMascot(to: origin) }
         interaction.onDragEnd = { [weak self] in self?.savePosition() }
+        interaction.setMusicPlaying(isMusicPlaying)
         interaction.setAnimating(isVisible)
         mascot.contentView = interaction
         mascotPanel = mascot
@@ -85,6 +88,14 @@ final class MochiCompanionController: ObservableObject {
         else { closeCard(); mascotPanel?.orderOut(nil) }
     }
 
+    func observeMusicPlayback(_ status: AnyPublisher<Bool, Never>) {
+        musicSubscription = status.removeDuplicates().sink { [weak self] playing in
+            guard let self else { return }
+            self.isMusicPlaying = playing
+            (self.mascotPanel?.contentView as? MascotInteractionView)?.setMusicPlaying(playing)
+        }
+    }
+
     func toggleCard() {
         guard isVisible, let cardPanel else { return }
         if cardPanel.isVisible { closeCard(); return }
@@ -114,6 +125,8 @@ final class MochiCompanionController: ObservableObject {
     }
 
     func stop() {
+        musicSubscription?.cancel()
+        musicSubscription = nil
         savePosition()
         closeCard()
         (mascotPanel?.contentView as? MascotInteractionView)?.setAnimating(false)
@@ -199,6 +212,7 @@ private final class MascotInteractionView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+    func setMusicPlaying(_ playing: Bool) { artwork.rootView.isMusicPlaying = playing }
     func setEngaged(_ engaged: Bool) {
         recordInteraction()
         artwork.rootView.isEngaged = engaged
@@ -222,7 +236,9 @@ private final class MascotInteractionView: NSView {
             artwork.rootView.isAnimating = true
             artwork.rootView.idleStartedAt = Date.timeIntervalSinceReferenceDate
         }
-        else { artwork.rootView = MochiMascotView(isAnimating: false) }
+        else {
+            artwork.rootView = MochiMascotView(isAnimating: false, isMusicPlaying: artwork.rootView.isMusicPlaying)
+        }
     }
 
     override func updateTrackingAreas() {

@@ -163,6 +163,7 @@ struct MochiMascotView: View {
     var isHovered = false
     var isHeld = false
     var isEngaged = false
+    var isMusicPlaying = false
     var dragLean: CGFloat = 0
     var hoverStartedAt: TimeInterval?
     var releasedAt: TimeInterval?
@@ -174,7 +175,7 @@ struct MochiMascotView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1.0 / 30, paused: !isAnimating)) { timeline in
             MochiMascotArtwork(pose: isAnimating
-                ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate,
+                ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate, isMusicPlaying: isMusicPlaying,
                                     isHovered: isHovered, isHeld: isHeld, isEngaged: isEngaged, dragLean: dragLean,
                                     hoverStartedAt: hoverStartedAt, releasedAt: releasedAt,
                                     idleStartedAt: idleStartedAt, wakeStartedAt: wakeStartedAt,
@@ -205,7 +206,8 @@ struct MochiMascotPose {
 
     static let sleepDelay: TimeInterval = 90
 
-    static func at(time: TimeInterval, isHovered: Bool = false, isHeld: Bool = false, isEngaged: Bool = false,
+    static func at(time: TimeInterval, isMusicPlaying: Bool = false,
+                   isHovered: Bool = false, isHeld: Bool = false, isEngaged: Bool = false,
                    dragLean: CGFloat = 0, hoverStartedAt: TimeInterval? = nil,
                    releasedAt: TimeInterval? = nil, idleStartedAt: TimeInterval? = nil,
                    wakeStartedAt: TimeInterval? = nil, wakeStrength: CGFloat = 0, animate: Bool = true) -> Self {
@@ -215,6 +217,7 @@ struct MochiMascotPose {
             ? keyframe(idleDuration, [(0, 0), (sleepDelay, 0), (sleepDelay + 3, 1)]) : 0
         if !animate {
             // Reduce Motion still permits the sleep state, with a static pose and static z's.
+            if isMusicPlaying { pose.eyeHeight = 0.72; pose.smileDepth = 9 }
             if sleep > 0 {
                 pose.scaleX = 1.07
                 pose.scaleY = 0.85
@@ -223,15 +226,21 @@ struct MochiMascotPose {
             }
             return pose
         }
+        let listening = isMusicPlaying && !isHovered && !isHeld && !isEngaged
         let breath = CGFloat(sin(time * .pi / 2.4))
-        pose.scaleX = 1 - breath * 0.045
-        pose.scaleY = 1 + breath * 0.055
-        pose.tilt = CGFloat(sin(time * .pi / 4.5)) * 2
+        pose.scaleX = 1 - breath * (listening ? 0.02 : 0.045)
+        pose.scaleY = 1 + breath * (listening ? 0.025 : 0.055)
+        pose.tilt = listening ? CGFloat(sin(time * .pi / 3)) * 4 : CGFloat(sin(time * .pi / 4.5)) * 2
         // A short glance left and right, then back to the center.
         pose.lookX = keyframe(time.truncatingRemainder(dividingBy: 11),
                              [(0, 0), (4, 0), (4.5, -8), (5.5, -8), (6.1, 8), (7.1, 8), (7.7, 0), (11, 0)])
         let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
         pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
+        if listening {
+            pose.lookX = 0
+            pose.eyeHeight *= 0.72
+            pose.smileDepth = 9
+        }
 
         if sleep > 0 {
             let slowBreath = CGFloat(sin(time * .pi / 4))
@@ -246,7 +255,7 @@ struct MochiMascotPose {
             return pose
         }
 
-        if !isHovered, !isHeld, !isEngaged, let idleStartedAt, time - idleStartedAt >= 26 {
+        if !isMusicPlaying, !isHovered, !isHeld, !isEngaged, let idleStartedAt, time - idleStartedAt >= 26 {
             let age = (time - idleStartedAt).truncatingRemainder(dividingBy: 26)
             if age <= 1.2 {
                 // A brief spontaneous hop: crouch, stretch into the air, squash on landing.
