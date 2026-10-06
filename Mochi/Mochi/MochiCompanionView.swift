@@ -394,8 +394,8 @@ struct MochiMascotArtwork: View {
 
             // Rotate from roots inside the body, then cover them with the body fill.
             // The hidden overlap keeps large waves attached instead of exposing an open seam.
-            for (hand, anchor, angle) in [(MochiArt.leftHand, CGPoint(x: 112, y: 284), pose.leftWave),
-                                          (MochiArt.rightHand, CGPoint(x: 370, y: 284), pose.rightWave)] {
+            for (hand, anchor, angle) in [(MochiArt.leftHand, MochiArt.leftHandRoot, pose.leftWave),
+                                          (MochiArt.rightHand, MochiArt.rightHandRoot, pose.rightWave)] {
                 var handContext = context
                 handContext.translateBy(x: anchor.x, y: anchor.y)
                 handContext.rotate(by: .degrees(Double(angle)))
@@ -510,23 +510,17 @@ private enum MochiArt {
         p.addCurve(to: CGPoint(x: 105, y: 340), control1: CGPoint(x: 169, y: 372), control2: CGPoint(x: 124, y: 363))
         p.closeSubpath()
     }
-    static let leftHand = Path { p in
-        p.move(to: CGPoint(x: 112, y: 276))
-        p.addQuadCurve(to: CGPoint(x: 104, y: 284), control: CGPoint(x: 104, y: 276))
-        p.addCurve(to: CGPoint(x: 96, y: 304), control1: CGPoint(x: 95, y: 290), control2: CGPoint(x: 89, y: 299))
-        p.addCurve(to: CGPoint(x: 114, y: 299), control1: CGPoint(x: 101, y: 309), control2: CGPoint(x: 109, y: 306))
-        p.addQuadCurve(to: CGPoint(x: 120, y: 292), control: CGPoint(x: 120, y: 302))
-        p.addQuadCurve(to: CGPoint(x: 112, y: 276), control: CGPoint(x: 124, y: 280))
-        p.closeSubpath()
-    }
-    static let rightHand = Path { p in
-        p.move(to: CGPoint(x: 370, y: 276))
-        p.addQuadCurve(to: CGPoint(x: 378, y: 284), control: CGPoint(x: 378, y: 276))
-        p.addCurve(to: CGPoint(x: 385, y: 304), control1: CGPoint(x: 387, y: 291), control2: CGPoint(x: 392, y: 299))
-        p.addCurve(to: CGPoint(x: 371, y: 299), control1: CGPoint(x: 380, y: 308), control2: CGPoint(x: 375, y: 305))
-        p.addQuadCurve(to: CGPoint(x: 362, y: 292), control: CGPoint(x: 362, y: 302))
-        p.addQuadCurve(to: CGPoint(x: 370, y: 276), control: CGPoint(x: 358, y: 280))
-        p.closeSubpath()
+    static let leftHandRoot = CGPoint(x: 112, y: 284)
+    static let rightHandRoot = CGPoint(x: 370, y: 284)
+    static let leftHand = hand(root: leftHandRoot, angle: atan2(15, -12))
+    static let rightHand = hand(root: rightHandRoot, angle: atan2(15, 12))
+
+    private static func hand(root: CGPoint, angle: CGFloat) -> Path {
+        // One convex outline avoids a second lobe as the arm rotates.
+        // Its six-point root stays covered by the body even at maximum hand scale.
+        let shape = Path(roundedRect: CGRect(x: -6, y: -6, width: 32, height: 12), cornerRadius: 6)
+        let transform = CGAffineTransform(translationX: root.x, y: root.y).rotated(by: angle)
+        return shape.applying(transform)
     }
 
 }
