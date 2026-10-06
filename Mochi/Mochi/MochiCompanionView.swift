@@ -217,29 +217,42 @@ struct MochiMascotPose {
             ? keyframe(idleDuration, [(0, 0), (sleepDelay, 0), (sleepDelay + 3, 1)]) : 0
         if !animate {
             // Reduce Motion still permits the sleep state, with a static pose and static z's.
-            if isMusicPlaying { pose.eyeHeight = 0.72; pose.smileDepth = 9 }
+            if isMusicPlaying { pose.happyEyes = 1; pose.smileDepth = 17 }
             if sleep > 0 {
                 pose.scaleX = 1.07
                 pose.scaleY = 0.85
                 pose.closedEyes = 1
                 pose.sleepAmount = 1
+                pose.happyEyes = 0
+                pose.smileDepth = 5
             }
             return pose
         }
-        let listening = isMusicPlaying && !isHovered && !isHeld && !isEngaged
+        let reacting = isActive(hoverStartedAt, at: time, duration: 1.5)
+            || isActive(releasedAt, at: time, duration: 0.7)
+            || isActive(wakeStartedAt, at: time, duration: 1.2)
+        let listening = isMusicPlaying && !isHovered && !isHeld && !isEngaged && !reacting
         let breath = CGFloat(sin(time * .pi / 2.4))
-        pose.scaleX = 1 - breath * (listening ? 0.02 : 0.045)
-        pose.scaleY = 1 + breath * (listening ? 0.025 : 0.055)
-        pose.tilt = listening ? CGFloat(sin(time * .pi / 3)) * 4 : CGFloat(sin(time * .pi / 4.5)) * 2
+        pose.scaleX = 1 - breath * 0.045
+        pose.scaleY = 1 + breath * 0.055
+        pose.tilt = CGFloat(sin(time * .pi / 4.5)) * 2
         // A short glance left and right, then back to the center.
         pose.lookX = keyframe(time.truncatingRemainder(dividingBy: 11),
                              [(0, 0), (4, 0), (4.5, -8), (5.5, -8), (6.1, 8), (7.1, 8), (7.7, 0), (11, 0)])
         let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
         pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
         if listening {
+            // A steady party rhythm: two squash-and-stretch bounces per side-to-side sway.
+            let beat = time * 2 * .pi / 1.8
+            let landing = CGFloat(cos(beat * 2))
+            pose.scaleX = 1 + landing * 0.1
+            pose.scaleY = 1 - landing * 0.14
+            pose.tilt = CGFloat(sin(beat)) * 14
+            pose.lift = (1 - landing) * 9
             pose.lookX = 0
-            pose.eyeHeight *= 0.72
-            pose.smileDepth = 9
+            pose.happyEyes = 1
+            pose.smileDepth = 17
+            pose.cheeks = 0.22
         }
 
         if sleep > 0 {
@@ -252,6 +265,10 @@ struct MochiMascotPose {
             pose.closedEyes = sleep
             pose.sleepAmount = sleep
             pose.sleepPhase = CGFloat(time / 2.8)
+            pose.lift *= 1 - sleep
+            pose.happyEyes *= 1 - sleep
+            pose.cheeks *= 1 - sleep
+            pose.smileDepth += (5 - pose.smileDepth) * sleep
             return pose
         }
 
@@ -333,6 +350,11 @@ struct MochiMascotPose {
             pose.rightWave = 0
         }
         return pose
+    }
+
+    private static func isActive(_ startedAt: TimeInterval?, at time: TimeInterval, duration: TimeInterval) -> Bool {
+        guard let startedAt else { return false }
+        return (0..<duration).contains(time - startedAt)
     }
 
     private static func keyframe(_ time: TimeInterval, _ frames: [(TimeInterval, CGFloat)]) -> CGFloat {
