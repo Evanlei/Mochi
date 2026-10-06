@@ -31,7 +31,7 @@ final class MochiCompanionController: ObservableObject {
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private let mascotSize = NSSize(width: 94, height: 88)
-    private let cardSize = NSSize(width: 352, height: 337)
+    private let cardSize = MochiCompanionCard.size
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -47,6 +47,7 @@ final class MochiCompanionController: ObservableObject {
         interaction.onClick = { [weak self] in self?.toggleCard() }
         interaction.onMove = { [weak self] origin in self?.moveMascot(to: origin) }
         interaction.onDragEnd = { [weak self] in self?.savePosition() }
+        interaction.setAnimating(isVisible)
         mascot.contentView = interaction
         mascotPanel = mascot
 
@@ -79,6 +80,7 @@ final class MochiCompanionController: ObservableObject {
         if mascotPanel == nil { start() }
         isVisible = visible
         defaults.set(visible, forKey: "mochi.companion.visible")
+        (mascotPanel?.contentView as? MascotInteractionView)?.setAnimating(visible)
         if visible { mascotPanel?.orderFrontRegardless() }
         else { closeCard(); mascotPanel?.orderOut(nil) }
     }
@@ -112,6 +114,7 @@ final class MochiCompanionController: ObservableObject {
     func stop() {
         savePosition()
         closeCard()
+        (mascotPanel?.contentView as? MascotInteractionView)?.setAnimating(false)
         mascotPanel?.orderOut(nil)
         mascotPanel = nil
         cardPanel = nil
@@ -177,10 +180,10 @@ private final class MascotInteractionView: NSView {
     private var initialMouse = NSPoint.zero
     private var initialOrigin = NSPoint.zero
     private var dragged = false
+    private let artwork = NSHostingView(rootView: MochiMascotView())
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let artwork = NSHostingView(rootView: MochiMascotView().accessibilityHidden(true))
         artwork.frame = bounds.insetBy(dx: 3, dy: 3)
         artwork.autoresizingMask = [.width, .height]
         addSubview(artwork)
@@ -192,6 +195,7 @@ private final class MascotInteractionView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+    func setAnimating(_ active: Bool) { artwork.rootView = MochiMascotView(isAnimating: active) }
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(point) ? self : nil }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }
@@ -200,6 +204,7 @@ private final class MascotInteractionView: NSView {
         initialMouse = NSEvent.mouseLocation
         initialOrigin = window?.frame.origin ?? .zero
         dragged = false
+        setAnimating(false)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -213,6 +218,7 @@ private final class MascotInteractionView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         NSCursor.openHand.set()
+        setAnimating(window?.isVisible == true)
         if dragged { onDragEnd?() }
         else { onClick?() }
     }

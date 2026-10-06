@@ -7,7 +7,7 @@ struct CompanionChecks {
     static func main() async throws {
         let screen = NSRect(x: 0, y: 40, width: 1200, height: 800)
         let mascotSize = NSSize(width: 94, height: 88)
-        let cardSize = NSSize(width: 352, height: 337)
+        let cardSize = MochiCompanionCard.size
         precondition(CompanionPlacement.clamp(NSPoint(x: -200, y: -300), size: mascotSize, inside: screen) == NSPoint(x: 0, y: 40))
         precondition(CompanionPlacement.clamp(NSPoint(x: 9000, y: 9000), size: mascotSize, inside: screen) == NSPoint(x: 1106, y: 752))
         let bottom = NSRect(x: 1080, y: 50, width: 94, height: 88)

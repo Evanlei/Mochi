@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -33,71 +34,55 @@ final class MochiRequestModel: ObservableObject {
 // MARK: - Companion card
 
 struct MochiCompanionCard: View {
+    static let size = CGSize(width: 300, height: 180)
     @ObservedObject var request: MochiRequestModel
     var onClose: () -> Void
     @FocusState private var composerFocused: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                MochiMascotView().frame(width: 27, height: 25)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("mochi").font(.system(size: 14, weight: .medium)).foregroundStyle(Color.mochiInk)
-                    HStack(spacing: 6) {
-                        Circle().fill(Color.mochiAccent).frame(width: 5, height: 5)
-                        Text("let’s find your next listen")
-                            .font(.system(size: 10)).foregroundStyle(Color.mochiMuted)
-                    }
-                }
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 6) {
+                Text(request.reply)
+                    .font(.system(size: 13)).lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("mochiReply")
                 if !request.preferences.isEmpty {
                     Button { request.reset(); composerFocused = true } label: {
                         Image(systemName: "arrow.counterclockwise")
+                            .frame(width: 20, height: 20)
                     }
                     .help("New listening request")
                     .accessibilityLabel("New listening request")
                 }
-                Button(action: onClose) { Image(systemName: "xmark") }
+                Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
                     .help("Close Mochi")
                     .accessibilityLabel("Close Mochi")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.mochiMuted)
-
-            Rectangle().fill(Color(hex: 0xECEEE7)).frame(height: 1).padding(.top, 18)
-
-            Text(request.reply)
-                .font(.system(size: 13))
-                .lineSpacing(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 13)
-                .background(Color(hex: 0xEFF3EC), in: RoundedRectangle(cornerRadius: 14))
-                .padding(.top, 25)
-                .accessibilityIdentifier("mochiReply")
+            .font(.system(size: 10))
 
             if request.preferences.isEmpty {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     choice("Focus")
                     choice("Unwind")
                     choice("Surprise me")
                 }
-                .padding(.top, 18)
             } else {
                 Text(request.summary)
                     .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
                     .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 12)
                     .help(request.summary)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 0)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 TextField("", text: $request.draft, axis: .vertical)
                     .font(.system(size: 11))
                     .textFieldStyle(.plain)
-                    .lineLimit(2...2)
+                    .lineLimit(1...2)
                     .focused($composerFocused)
                     .onSubmit { request.submit() }
                     .onChange(of: request.draft) { _, text in
@@ -105,7 +90,7 @@ struct MochiCompanionCard: View {
                     }
                     .overlay(alignment: .leading) {
                         if request.draft.isEmpty {
-                            Text("Tell me a mood, artist,\nor song…")
+                            Text("Mood, artist, or song…")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color.mochiMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -117,24 +102,32 @@ struct MochiCompanionCard: View {
                 Button { request.submit() } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x60705E))
-                        .frame(width: 30, height: 30)
-                        .background(Color(hex: 0xDCE8D9), in: Circle())
+                        .foregroundStyle(Color(hex: 0xDCE8D9))
+                        .frame(width: 26, height: 26)
+                        .background(Color(hex: 0xA5BCB6).opacity(0.2), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!request.canSubmit)
                 .help("Send listening request")
                 .accessibilityLabel("Send listening request")
             }
-            .padding(.horizontal, 14)
-            .frame(height: 56)
-            .background(Color(hex: 0xF3F4EF), in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 10)
+            .frame(height: 42)
+            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 11))
         }
-        .padding(20)
-        .frame(width: 352, height: 337)
-        .foregroundStyle(Color.mochiInk)
-        .background(Color(hex: 0xFBFBF7), in: RoundedRectangle(cornerRadius: 20))
-        .environment(\.colorScheme, .light)
+        .padding(14)
+        .frame(width: Self.size.width, height: Self.size.height)
+        .foregroundStyle(Color(hex: 0xF1F3ED))
+        .background {
+            if reduceTransparency {
+                Color(hex: 0x202725)
+            } else {
+                CompanionGlass().overlay(Color(hex: 0x202725).opacity(0.22))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+        .environment(\.colorScheme, .dark)
         .onExitCommand(perform: onClose)
         .task { composerFocused = true }
     }
@@ -142,45 +135,68 @@ struct MochiCompanionCard: View {
     private func choice(_ title: String) -> some View {
         Button { request.submit(title); composerFocused = true } label: {
             Text(title).font(.system(size: 11))
-                .padding(.horizontal, 16).frame(height: 30)
-                .background(Color(hex: 0xFBFBF7), in: Capsule())
-                .overlay(Capsule().strokeBorder(Color(hex: 0xDCE4D8), lineWidth: 1))
+                .padding(.horizontal, 12).frame(height: 26)
+                .background(Color.white.opacity(0.07), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color(hex: 0xA5BCB6).opacity(0.25), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
 }
 
+private struct CompanionGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 // MARK: - Native vector rendering of design/mochi.svg
 
 struct MochiMascotView: View {
-    var body: some View {
-        Canvas { context, size in
-            // Crop the SVG's empty margins, then scale its original coordinates uniformly.
-            let scale = min(size.width / 310, size.height / 288)
-            context.translateBy(x: (size.width - 310 * scale) / 2, y: (size.height - 288 * scale) / 2)
-            context.scaleBy(x: scale, y: scale)
-            context.translateBy(x: -85, y: -100)
+    var isAnimating = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-            context.fill(Path(ellipseIn: CGRect(x: 100, y: 365, width: 280, height: 18)),
-                         with: .color(Color(hex: 0xB7AFB9).opacity(0.4)))
-            context.fill(MochiArt.body, with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: Color(hex: 0xE1EADF), location: 0),
-                    .init(color: Color(hex: 0xD9E5D9), location: 0.43),
-                    .init(color: Color(hex: 0xC8DACE), location: 0.68),
-                    .init(color: Color(hex: 0xB6CEC3), location: 0.88),
-                    .init(color: Color(hex: 0xA5BCB6), location: 1)
-                ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
-            context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
-            for hand in [MochiArt.leftHand, MochiArt.rightHand] {
-                context.fill(hand, with: .color(Color(hex: 0xC8DACE)))
-                context.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !isAnimating || reduceMotion)) { timeline in
+            let moving = isAnimating && !reduceMotion
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let bob = moving ? sin(time * .pi / 2) * 6 : 0
+            let phase = time.truncatingRemainder(dividingBy: 5.5)
+            let blink = moving && phase < 0.18 ? max(0.08, abs(phase - 0.09) / 0.09) : 1
+            Canvas { context, size in
+                // Crop the SVG's empty margins, then scale its original coordinates uniformly.
+                let scale = min(size.width / 310, size.height / 288)
+                context.translateBy(x: (size.width - 310 * scale) / 2, y: (size.height - 288 * scale) / 2)
+                context.scaleBy(x: scale, y: scale)
+                context.translateBy(x: -85, y: -100 + bob)
+
+                context.fill(MochiArt.body, with: .linearGradient(
+                    Gradient(stops: [
+                        .init(color: Color(hex: 0xE1EADF), location: 0),
+                        .init(color: Color(hex: 0xD9E5D9), location: 0.43),
+                        .init(color: Color(hex: 0xC8DACE), location: 0.68),
+                        .init(color: Color(hex: 0xB6CEC3), location: 0.88),
+                        .init(color: Color(hex: 0xA5BCB6), location: 1)
+                    ]), startPoint: CGPoint(x: 97.9254, y: 109.838), endPoint: CGPoint(x: 126.788, y: 372.605)))
+                context.fill(MochiArt.base, with: .color(Color(hex: 0x9DAFAF).opacity(0.3)))
+                for hand in [MochiArt.leftHand, MochiArt.rightHand] {
+                    context.fill(hand, with: .color(Color(hex: 0xC8DACE)))
+                    context.stroke(hand, with: .color(Color(hex: 0x8EA69D)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                }
+                for x: CGFloat in [183, 283] {
+                    let height = 22 * blink
+                    context.fill(Path(ellipseIn: CGRect(x: x, y: 244 - height / 2, width: 14, height: height)), with: .color(Color.mochiInk))
+                }
+                context.stroke(MochiArt.smile, with: .color(Color.mochiInk), style: StrokeStyle(lineWidth: 3, lineCap: .round))
             }
-            for x: CGFloat in [183, 283] {
-                context.fill(Path(ellipseIn: CGRect(x: x, y: 233, width: 14, height: 22)), with: .color(Color.mochiInk))
-            }
-            context.stroke(MochiArt.smile, with: .color(Color.mochiInk), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         }
+        .accessibilityHidden(true)
     }
 }
 
@@ -225,8 +241,7 @@ private extension Color {
                   green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1)
     }
     static let mochiInk = Color(hex: 0x514951)
-    static let mochiMuted = Color(hex: 0x90978B)
-    static let mochiAccent = Color(hex: 0x95AA98)
+    static let mochiMuted = Color(hex: 0xBAC6BE)
 }
 
 #Preview("Companion") {
