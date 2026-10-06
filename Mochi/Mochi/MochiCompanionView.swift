@@ -165,6 +165,7 @@ struct MochiMascotView: View {
     var dragLean: CGFloat = 0
     var hoverStartedAt: TimeInterval?
     var releasedAt: TimeInterval?
+    var idleStartedAt = Date.timeIntervalSinceReferenceDate
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -172,7 +173,8 @@ struct MochiMascotView: View {
             MochiMascotArtwork(pose: isAnimating && !reduceMotion
                 ? MochiMascotPose.at(time: timeline.date.timeIntervalSinceReferenceDate,
                                     isHovered: isHovered, isHeld: isHeld, dragLean: dragLean,
-                                    hoverStartedAt: hoverStartedAt, releasedAt: releasedAt)
+                                    hoverStartedAt: hoverStartedAt, releasedAt: releasedAt,
+                                    idleStartedAt: idleStartedAt)
                 : MochiMascotPose())
         }
         .accessibilityHidden(true)
@@ -196,7 +198,7 @@ struct MochiMascotPose {
 
     static func at(time: TimeInterval, isHovered: Bool = false, isHeld: Bool = false,
                    dragLean: CGFloat = 0, hoverStartedAt: TimeInterval? = nil,
-                   releasedAt: TimeInterval? = nil) -> Self {
+                   releasedAt: TimeInterval? = nil, idleStartedAt: TimeInterval? = nil) -> Self {
         var pose = Self()
         let breath = CGFloat(sin(time * .pi / 2.4))
         pose.scaleX = 1 - breath * 0.045
@@ -207,6 +209,22 @@ struct MochiMascotPose {
                              [(0, 0), (4, 0), (4.5, -8), (5.5, -8), (6.1, 8), (7.1, 8), (7.7, 0), (11, 0)])
         let blinkPhase = time.truncatingRemainder(dividingBy: 5.5)
         pose.eyeHeight = keyframe(blinkPhase, [(0, 1), (0.09, 0.08), (0.18, 1), (5.5, 1)])
+
+        if !isHovered, !isHeld, let idleStartedAt, time - idleStartedAt >= 26 {
+            let age = (time - idleStartedAt).truncatingRemainder(dividingBy: 26)
+            if age <= 1.2 {
+                // A brief spontaneous hop: crouch, stretch into the air, squash on landing.
+                let reaction = keyframe(age, [(0, 0), (0.06, 1), (0.95, 1), (1.2, 0)])
+                let width = keyframe(age, [(0, 1), (0.16, 1.18), (0.3, 0.9), (0.55, 0.98), (0.75, 1.2), (1, 1)])
+                let height = keyframe(age, [(0, 1), (0.16, 0.78), (0.3, 1.16), (0.55, 1.04), (0.75, 0.8), (1, 1)])
+                pose.scaleX += (width - pose.scaleX) * reaction
+                pose.scaleY += (height - pose.scaleY) * reaction
+                pose.lift = keyframe(age, [(0, 0), (0.18, 0), (0.43, 30), (0.7, 0), (1.2, 0)])
+                pose.lookX *= 1 - reaction
+                pose.happyEyes = keyframe(age, [(0, 0), (0.2, 0), (0.35, 1), (0.65, 1), (0.9, 0), (1.2, 0)])
+                pose.smileDepth += 10 * reaction
+            }
+        }
 
         if isHovered {
             pose.lookX = 0

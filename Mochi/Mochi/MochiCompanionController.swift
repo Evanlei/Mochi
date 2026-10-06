@@ -198,7 +198,10 @@ private final class MascotInteractionView: NSView {
 
     required init?(coder: NSCoder) { nil }
     func setAnimating(_ active: Bool) {
-        if active { artwork.rootView.isAnimating = true }
+        if active {
+            artwork.rootView.isAnimating = true
+            artwork.rootView.idleStartedAt = Date.timeIntervalSinceReferenceDate
+        }
         else { artwork.rootView = MochiMascotView(isAnimating: false) }
     }
 
@@ -219,6 +222,7 @@ private final class MascotInteractionView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         artwork.rootView.isHovered = false
+        artwork.rootView.idleStartedAt = Date.timeIntervalSinceReferenceDate
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(point) ? self : nil }
