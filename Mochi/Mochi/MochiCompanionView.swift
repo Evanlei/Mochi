@@ -387,23 +387,51 @@ struct MochiMascotArtwork: View {
 
             var face = context
             face.translateBy(x: pose.lookX, y: 0)
+            // Keep the sleeping face readable even as the body flattens and breathes.
+            let sleepStroke = 5 / min(pose.scaleX, pose.scaleY)
             for x: CGFloat in [190, 290] {
-                let height = 22 * pose.eyeHeight
-                let width = 14 * pose.eyeWidth
-                face.fill(Path(ellipseIn: CGRect(x: x - width / 2, y: 244 - height / 2, width: width, height: height)),
-                          with: .color(Color.mochiInk.opacity(Double((1 - pose.happyEyes) * (1 - pose.closedEyes)))))
-                let happyEye = Path { p in
-                    p.move(to: CGPoint(x: x - 10, y: 245))
-                    p.addQuadCurve(to: CGPoint(x: x + 10, y: 245), control: CGPoint(x: x, y: 229))
+                if pose.closedEyes == 0 {
+                    // Preserve the existing awake eyes and happy expression.
+                    let height = 22 * pose.eyeHeight
+                    let width = 14 * pose.eyeWidth
+                    face.fill(Path(ellipseIn: CGRect(x: x - width / 2, y: 244 - height / 2, width: width, height: height)),
+                              with: .color(Color.mochiInk.opacity(Double(1 - pose.happyEyes))))
+                    let happyEye = Path { p in
+                        p.move(to: CGPoint(x: x - 10, y: 245))
+                        p.addQuadCurve(to: CGPoint(x: x + 10, y: 245), control: CGPoint(x: x, y: 229))
+                    }
+                    face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes))),
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    continue
                 }
-                face.stroke(happyEye, with: .color(Color.mochiInk.opacity(Double(pose.happyEyes * (1 - pose.closedEyes)))),
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                let closedEye = Path { p in
-                    p.move(to: CGPoint(x: x - 9, y: 244))
-                    p.addQuadCurve(to: CGPoint(x: x + 9, y: 244), control: CGPoint(x: x, y: 250))
+                // One solid contour morphs from an oval to a curved lid; no translucent overlap.
+                let closure = pose.closedEyes
+                let width = 14 * pose.eyeWidth * (1 - closure) + 20 * closure
+                let height = max(sleepStroke, 22 * pose.eyeHeight) * (1 - closure)
+                let bend = 3 * pose.closedEyes - 7 * pose.happyEyes * (1 - pose.closedEyes)
+                let radiusX = width / 2, radiusY = height / 2
+                let curve: CGFloat = 0.5522848
+                let eye = Path { p in
+                    p.move(to: CGPoint(x: x - radiusX, y: 244))
+                    p.addCurve(to: CGPoint(x: x, y: 244 + bend - radiusY),
+                               control1: CGPoint(x: x - radiusX, y: 244 + bend / 2 - radiusY * curve),
+                               control2: CGPoint(x: x - radiusX * curve, y: 244 + bend - radiusY))
+                    p.addCurve(to: CGPoint(x: x + radiusX, y: 244),
+                               control1: CGPoint(x: x + radiusX * curve, y: 244 + bend - radiusY),
+                               control2: CGPoint(x: x + radiusX, y: 244 + bend / 2 - radiusY * curve))
+                    p.addCurve(to: CGPoint(x: x, y: 244 + bend + radiusY),
+                               control1: CGPoint(x: x + radiusX, y: 244 + bend / 2 + radiusY * curve),
+                               control2: CGPoint(x: x + radiusX * curve, y: 244 + bend + radiusY))
+                    p.addCurve(to: CGPoint(x: x - radiusX, y: 244),
+                               control1: CGPoint(x: x - radiusX * curve, y: 244 + bend + radiusY),
+                               control2: CGPoint(x: x - radiusX, y: 244 + bend / 2 + radiusY * curve))
+                    p.closeSubpath()
                 }
-                face.stroke(closedEye, with: .color(Color.mochiInk.opacity(Double(pose.closedEyes))),
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                face.fill(eye, with: .color(Color.mochiInk))
+                if closure > 0 {
+                    face.stroke(eye, with: .color(Color.mochiInk),
+                                style: StrokeStyle(lineWidth: sleepStroke * closure, lineCap: .round, lineJoin: .round))
+                }
             }
             for x: CGFloat in [173, 291] {
                 face.fill(Path(ellipseIn: CGRect(x: x, y: 263, width: 20, height: 9)),
@@ -413,8 +441,10 @@ struct MochiMascotArtwork: View {
                 p.move(to: CGPoint(x: 231, y: 243))
                 p.addQuadCurve(to: CGPoint(x: 251, y: 243), control: CGPoint(x: 241, y: 243 + pose.smileDepth))
             }
+            let sleepWeight = max(pose.sleepAmount, pose.closedEyes)
+            let mouthStroke = 3 + (sleepStroke - 3) * sleepWeight
             face.stroke(smile, with: .color(Color.mochiInk.opacity(Double(1 - pose.mouthOpen))),
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        style: StrokeStyle(lineWidth: mouthStroke, lineCap: .round))
             face.fill(Path(ellipseIn: CGRect(x: 235, y: 240, width: 12, height: 14)),
                       with: .color(Color.mochiInk.opacity(Double(pose.mouthOpen))))
             if pose.sleepAmount > 0 {
