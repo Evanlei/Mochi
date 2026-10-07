@@ -29,7 +29,19 @@ final class SpotifyPlaybackClient {
                               accessToken: accessToken, deviceID: deviceID)
     }
 
-    private func request(path: String, method: String, accessToken: String, deviceID: String? = nil) async throws -> (Data, Int) {
+    func startTrack(uri: String, accessToken: String, deviceID: String?) async throws {
+        let id = uri.dropFirst("spotify:track:".count)
+        guard uri.hasPrefix("spotify:track:"), id.count == 22,
+              id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }) else {
+            throw SpotifyPlaybackError.invalidTrack
+        }
+        let body = try JSONSerialization.data(withJSONObject: ["uris": [uri], "position_ms": 0])
+        _ = try await request(path: "/play", method: "PUT", accessToken: accessToken,
+                              deviceID: deviceID, body: body)
+    }
+
+    private func request(path: String, method: String, accessToken: String, deviceID: String? = nil,
+                         body: Data? = nil) async throws -> (Data, Int) {
         var components = URLComponents(string: "https://api.spotify.com/v1/me/player\(path)")!
         if let deviceID { components.queryItems = [URLQueryItem(name: "device_id", value: deviceID)] }
         var request = URLRequest(url: components.url!)
@@ -37,6 +49,10 @@ final class SpotifyPlaybackClient {
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
         let (data, response) = try await session.data(for: request, delegate: NoPlaybackRedirects())
         guard let response = response as? HTTPURLResponse else {
             throw SpotifyPlaybackError.unexpectedResponse
@@ -65,7 +81,7 @@ enum SpotifyPlaybackCommand: String, Sendable {
 }
 
 enum SpotifyPlaybackError: LocalizedError {
-    case unauthorized, forbidden, noDevice, unexpectedResponse
+    case unauthorized, forbidden, noDevice, unexpectedResponse, invalidTrack
     case rateLimited(seconds: TimeInterval, quotaExceeded: Bool)
     case requestFailed(Int)
 
@@ -75,6 +91,7 @@ enum SpotifyPlaybackError: LocalizedError {
         case .forbidden: "Spotify did not allow this action. Check Premium, app access, and device restrictions."
         case .noDevice: "No Spotify player is available. Open Spotify, start a song, then refresh."
         case .unexpectedResponse: "Spotify returned playback information Mochi could not read."
+        case .invalidTrack: "This result does not contain a valid Spotify track. Search again."
         case .rateLimited(let seconds, let quotaExceeded):
             quotaExceeded ? "Spotify's API quota is exhausted. Try again later." : "Spotify asked Mochi to wait \(Int(seconds.rounded(.up))) seconds before another request."
         case .requestFailed(let status): "Spotify playback request failed (HTTP \(status)). Try refreshing."

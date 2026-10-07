@@ -53,39 +53,62 @@ final class SpotifyPlaybackModel: ObservableObject {
     }
 
     func perform(_ command: SpotifyPlaybackCommand, using auth: SpotifyAuthModel) async {
-        guard auth.isConnected, canPerform(command), readyToRequest() else { return }
+        guard canPerform(command) else { return }
+        let deviceID = state?.device?.id
+        _ = await changePlayback(using: auth) { token in
+            try await self.client.send(command, accessToken: token, deviceID: deviceID)
+        }
+    }
+
+    /// Shares the same busy state as menu controls so player commands cannot overlap.
+    /// True means Spotify accepted the track; a failed follow-up refresh is reported separately.
+    func startTrack(uri: String, using auth: SpotifyAuthModel) async -> Bool {
         let version = requestVersion
         let connectionVersion = auth.connectionVersion
-        let deviceID = state?.device?.id
+        return await changePlayback(using: auth) { token in
+            // Read the active device now rather than targeting an old menu-panel snapshot.
+            let current = try await self.client.fetchState(accessToken: token)
+            try Task.checkCancellation()
+            guard version == self.requestVersion, auth.isConnected,
+                  connectionVersion == auth.connectionVersion else { throw CancellationError() }
+            guard current?.device?.isRestricted != true else { throw SpotifyPlaybackError.forbidden }
+            try await self.client.startTrack(uri: uri, accessToken: token, deviceID: current?.device?.id)
+        }
+    }
+
+    private func changePlayback(using auth: SpotifyAuthModel,
+                                operation: (String) async throws -> Void) async -> Bool {
+        guard auth.isConnected, !isBusy, readyToRequest() else { return false }
+        let version = requestVersion
+        let connectionVersion = auth.connectionVersion
         isBusy = true
         errorMessage = nil
         var commandAccepted = false
         defer { if version == requestVersion { isBusy = false } }
         do {
-            try await authorized(using: auth) { token in
-                try await self.client.send(command, accessToken: token, deviceID: deviceID)
-            }
+            try await authorized(using: auth, operation: operation)
             commandAccepted = true
             try Task.checkCancellation()
-            guard version == requestVersion else { return }
+            guard version == requestVersion else { return false }
             // Spotify's command acknowledgement can arrive before playback state catches up.
             try await Task.sleep(for: .milliseconds(350))
             guard version == requestVersion, auth.isConnected,
-                  connectionVersion == auth.connectionVersion else { return }
+                  connectionVersion == auth.connectionVersion else { return false }
             let state = try await authorized(using: auth) { token in
                 try await self.client.fetchState(accessToken: token)
             }
             try Task.checkCancellation()
-            guard version == requestVersion else { return }
+            guard version == requestVersion else { return false }
             update(state)
         } catch {
             guard version == requestVersion, !(error is CancellationError),
-                  (error as? URLError)?.code != .cancelled else { return }
+                  (error as? URLError)?.code != .cancelled else { return false }
             report(error)
             if commandAccepted {
                 errorMessage = "Spotify accepted the control, but Mochi could not refresh its result. \(error.localizedDescription)"
             }
         }
+        return commandAccepted
     }
 
     private func authorized<T>(using auth: SpotifyAuthModel, operation: (String) async throws -> T) async throws -> T {
