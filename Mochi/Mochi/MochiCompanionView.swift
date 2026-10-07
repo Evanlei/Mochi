@@ -6,6 +6,7 @@ import SwiftUI
 
 @MainActor
 final class MochiRequestModel: ObservableObject {
+    @Published var isSearchPresented = false
     @Published var draft = ""
     @Published private(set) var preferences: [String] = []
     @Published private(set) var reply = "What do you feel like\nlistening to?"
@@ -35,7 +36,9 @@ final class MochiRequestModel: ObservableObject {
 
 struct MochiCompanionCard: View {
     static let size = CGSize(width: 300, height: 180)
+    static let searchSize = CGSize(width: 300, height: 340)
     @ObservedObject var request: MochiRequestModel
+    @ObservedObject var search: SpotifySearchModel
     var onClose: () -> Void
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -43,18 +46,29 @@ struct MochiCompanionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 6) {
-                Text(request.reply)
+                Text(request.isSearchPresented ? "Search Spotify" : request.reply)
                     .font(.system(size: 13)).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("mochiReply")
-                if !request.preferences.isEmpty {
-                    Button { request.reset(); composerFocused = true } label: {
+                Button { request.isSearchPresented.toggle(); composerFocused = true } label: {
+                    Image(systemName: request.isSearchPresented ? "bubble.left" : "magnifyingglass")
+                        .frame(width: 20, height: 20)
+                }
+                .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
+                .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
+                .accessibilityIdentifier("mochiSearchToggle")
+                if request.isSearchPresented ? !search.query.isEmpty : !request.preferences.isEmpty {
+                    Button {
+                        if request.isSearchPresented { search.reset() } else { request.reset() }
+                        composerFocused = true
+                    } label: {
                         Image(systemName: "arrow.counterclockwise")
                             .frame(width: 20, height: 20)
                     }
-                    .help("New listening request")
-                    .accessibilityLabel("New listening request")
+                    .help(request.isSearchPresented ? "Clear search" : "New listening request")
+                    .accessibilityLabel(request.isSearchPresented ? "Clear search" : "New listening request")
+                    .disabled(request.isSearchPresented && search.isStarting)
                 }
                 Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
                     .help("Close Mochi")
@@ -63,7 +77,9 @@ struct MochiCompanionCard: View {
             .buttonStyle(.plain)
             .font(.system(size: 10))
 
-            if request.preferences.isEmpty {
+            if request.isSearchPresented {
+                searchContent
+            } else if request.preferences.isEmpty {
                 HStack(spacing: 6) {
                     choice("Focus")
                     choice("Unwind")
@@ -79,44 +95,48 @@ struct MochiCompanionCard: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 8) {
-                TextField("", text: $request.draft, axis: .vertical)
+                TextField("", text: composerText, axis: .vertical)
+                    .id(request.isSearchPresented)
                     .font(.system(size: 11))
                     .textFieldStyle(.plain)
                     .lineLimit(1...2)
                     .focused($composerFocused)
-                    .onSubmit { request.submit() }
-                    .onChange(of: request.draft) { _, text in
-                        if text.count > 500 { request.draft = String(text.prefix(500)) }
+                    .onSubmit { submit() }
+                    .onChange(of: composerText.wrappedValue) { _, text in
+                        let limit = request.isSearchPresented ? 200 : 500
+                        if text.count > limit { composerText.wrappedValue = String(text.prefix(limit)) }
                     }
                     .overlay(alignment: .leading) {
-                        if request.draft.isEmpty {
-                            Text("Mood, artist, or song…")
+                        if composerText.wrappedValue.isEmpty {
+                            Text(request.isSearchPresented
+                                 ? (search.kind == .song ? "Song title…" : "Artist name…") : "Mood, artist, or song…")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color.mochiMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .allowsHitTesting(false).accessibilityHidden(true)
                         }
                     }
-                    .accessibilityLabel("Describe what you want to listen to")
+                    .accessibilityLabel(request.isSearchPresented ? "Search query" : "Describe what you want to listen to")
+                    .accessibilityIdentifier("mochiComposer")
 
-                Button { request.submit() } label: {
-                    Image(systemName: "arrow.up")
+                Button { submit() } label: {
+                    Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(hex: 0x60705E))
                         .frame(width: 26, height: 26)
                         .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!request.canSubmit)
-                .help("Send listening request")
-                .accessibilityLabel("Send listening request")
+                .disabled(request.isSearchPresented ? !search.canSubmit : !request.canSubmit)
+                .help(request.isSearchPresented ? "Search Spotify" : "Send listening request")
+                .accessibilityLabel(request.isSearchPresented ? "Search Spotify" : "Send listening request")
             }
             .padding(.horizontal, 10)
             .frame(height: 42)
             .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
         }
         .padding(14)
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.size.width, height: request.isSearchPresented ? Self.searchSize.height : Self.size.height)
         .foregroundStyle(Color.mochiInk)
         .background {
             if reduceTransparency {
@@ -129,7 +149,97 @@ struct MochiCompanionCard: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
         .environment(\.colorScheme, .light)
         .onExitCommand(perform: onClose)
-        .task { composerFocused = true }
+        .task(id: request.isSearchPresented) {
+            composerFocused = false
+            await Task.yield()
+            composerFocused = true
+        }
+    }
+
+    private var composerText: Binding<String> { request.isSearchPresented ? $search.query : $request.draft }
+
+    private func submit() {
+        if request.isSearchPresented { search.search() } else { request.submit() }
+    }
+
+    private var searchContent: some View {
+        VStack(spacing: 8) {
+            Picker("Search by", selection: $search.kind) {
+                ForEach(SpotifySearchKind.allCases) { kind in Text(kind.rawValue).tag(kind) }
+            }
+            .pickerStyle(.segmented).controlSize(.small).labelsHidden()
+            .disabled(search.isStarting)
+
+            if search.isSearching {
+                VStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    ProgressView().controlSize(.small)
+                    Text("Searching Spotify…").font(.system(size: 11))
+                    Button("Cancel search") { search.cancelSearch() }.font(.system(size: 11))
+                    Spacer(minLength: 0)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if search.results.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Image(systemName: "music.note.list").font(.system(size: 22)).foregroundStyle(Color.mochiMuted)
+                    Text(search.isConnected
+                         ? "Find a song, or choose Artists\nto find tracks by an artist."
+                         : "Connect Spotify from the menu bar\nto find and play songs.")
+                        .font(.system(size: 11)).multilineTextAlignment(.center).foregroundStyle(Color.mochiMuted)
+                    Spacer(minLength: 0)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(search.results) { track in resultRow(track) }
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if let message = search.message {
+                Text(message).font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
+                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).help(message)
+                    .accessibilityIdentifier("mochiSearchMessage")
+            }
+        }.frame(maxHeight: .infinity)
+    }
+
+    private func resultRow(_ track: SpotifySearchTrack) -> some View {
+        HStack(spacing: 4) {
+            Button { search.play(track) } label: {
+                HStack(spacing: 8) {
+                    AsyncImage(url: track.artworkURL) { image in image.resizable().scaledToFit() } placeholder: {
+                        Image(systemName: "music.note").foregroundStyle(Color.mochiMuted)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.white.opacity(0.3))
+                    }.frame(width: 32, height: 32).clipShape(RoundedRectangle(cornerRadius: 5))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(track.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                        Text(track.artistNames).font(.system(size: 10)).lineLimit(1)
+                        Text(track.canPlay ? track.album.name : "Unavailable in your account")
+                            .font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if search.startingTrackID == track.id {
+                        ProgressView().controlSize(.mini).frame(width: 16)
+                    } else {
+                        Image(systemName: "play.fill").font(.system(size: 9)).frame(width: 16)
+                    }
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).disabled(!search.canPlay(track))
+            .opacity(track.canPlay ? 1 : 0.55)
+            .help("\(track.name)\n\(track.artistNames)\n\(track.album.name)")
+            .accessibilityLabel("Play \(track.name) by \(track.artistNames)")
+            Link(destination: track.spotifyURL) {
+                Image(systemName: "arrow.up.right").font(.system(size: 9)).frame(width: 18, height: 28)
+            }
+            .foregroundStyle(Color.mochiMuted)
+            .help("Open in Spotify")
+            .accessibilityLabel("Open \(track.name) in Spotify")
+        }
+        .padding(6)
+        .background(Color.white.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func choice(_ title: String) -> some View {
@@ -535,5 +645,5 @@ private extension Color {
 }
 
 #Preview("Companion") {
-    MochiCompanionCard(request: MochiRequestModel(), onClose: {})
+    MochiCompanionCard(request: MochiRequestModel(), search: SpotifySearchModel(), onClose: {})
 }

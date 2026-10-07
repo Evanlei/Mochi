@@ -4,7 +4,7 @@
 
 A native macOS music companion, built with Swift and SwiftUI. A small floating Mochi collects listening requests, while the menu-bar panel controls Spotify playback. Mochi is being developed to turn those requests into personalized recommendations.
 
-The floating companion, listening-request card, Spotify authorization, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
+The floating companion, listening-request card, Spotify authorization, catalog search, selected-track playback, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
 
 ## Current functionality
 
@@ -12,18 +12,20 @@ The floating companion, listening-request card, Spotify authorization, Now Playi
 - Click Mochi to open or close a compact listening-request card.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
 - Local follow-up prompts and a summary of your preferences, retained while the app runs.
+- Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
+- Loading, cancellation, empty-result, unavailable-track, and connection/error states for search.
 - Saved desktop position and visibility, plus Show/Hide Mochi and Quit in the menu-bar panel.
 - Spotify Authorization Code with PKCE, using the system browser and a local callback listener.
 - Callback state validation, cancellation, timeout, and connection-status messages.
 - HTTPS token exchange, access-token refresh, and secure token storage in macOS Keychain.
-- Restoration of a saved connection when the panel opens after relaunch.
+- Restoration of a saved connection at app launch, even before the menu-bar panel opens.
 - Local disconnect that removes Mochi's saved tokens.
 - Now Playing with the song, artist, playing/paused status, and Spotify device.
 - Play/pause, previous, next, and manual Refresh controls.
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**The companion currently collects preferences with simple local prompts. It does not use an AI service, recommend tracks, or start playback from those requests yet.** Live Spotify login, connection restoration, and playback controls have been manually confirmed. Automated authentication and playback checks use simulated Spotify responses.
+**Mood requests still use simple local follow-up prompts; they do not generate recommendations or start playback. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
 
 ## Requirements
 
@@ -103,6 +105,21 @@ The companion stays above ordinary windows and joins desktop Spaces. Its card op
 
 Your listening preferences are currently kept in memory and cleared when the app quits. Only the character's position and visibility are saved in local app preferences.
 
+## Find and play a song
+
+1. Connect Spotify from the menu-bar panel, and open Spotify on your preferred device. Start a song there once if Spotify has no active player.
+2. Click Mochi, then the **magnifying glass** in its card.
+3. Choose **Songs** and enter a title, or choose **Artists** and enter an artist's name to find matching tracks.
+4. Press **Return** or click the search button. Mochi searches once per submission, not on every keystroke.
+5. Click a result to play that track. The small external-link button opens its Spotify page.
+6. Use the speech-bubble button to return to your listening request.
+
+Search mode expands the same translucent card to 300 × 340 points, with a scrollable result list. Returning to the listening request restores its 300 × 180-point size and retains your preferences. Closing the card retains search results during the session. Disconnecting clears account results and cancels pending work.
+
+Mochi uses Spotify's [catalog search](https://developer.spotify.com/documentation/web-api/reference/search) with five results and the connected user's market. Artist mode searches tracks with Spotify's `artist:` filter. You choose the result; Mochi does not assume the first match is correct. Tracks explicitly marked unavailable are disabled. Spotify may omit optional metadata, which Mochi tolerates.
+
+Choosing a track reads the active playback device, then sends its URI to Spotify's [Start/Resume Playback endpoint](https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback). This requires Premium and the existing `user-modify-playback-state` permission; no extra login scopes were added. Search and menu controls share playback sequencing. Mochi refreshes Now Playing after Spotify accepts the track; if confirmation fails, it reports that the command was accepted but its result could not be refreshed. It does not automatically repeat uncertain playback failures.
+
 ## App icon
 
 Mochi's app icon uses the sage character on a warm cream rounded square. The editable source is [mochi-app-icon-concept.svg](design/mochi-app-icon-concept.svg); [mochi-app-icon.png](design/mochi-app-icon.png) is the 1024-pixel export used above.
@@ -141,7 +158,7 @@ These checks cover playback decoding, all four control requests, device targetin
 bash scripts/test-companion.sh
 ```
 
-Run this in a logged-in macOS desktop session. The checks briefly show native test windows and verify screen-edge placement, multiple/removed displays, accessible click toggling, keyboard focus, typing, Return submission, Escape dismissal, and position/visibility restoration. They use a unique temporary preferences domain and remove it afterward; they do not use Spotify credentials or modify real playback.
+Run this in a logged-in macOS desktop session. The checks briefly show native test windows and verify placement, accessible click toggling, keyboard focus, typing, Return submission, Escape dismissal, and position/visibility restoration. They also exercise search-card expansion, launch-time connection restoration, keyboard search, and result-click playback using fake Spotify responses. They use a unique temporary preferences domain and remove it afterward; they do not use Spotify credentials or modify real playback.
 
 To also render the actual SwiftUI card and character for inspection:
 
@@ -149,13 +166,21 @@ To also render the actual SwiftUI card and character for inspection:
 bash scripts/test-companion.sh /private/tmp/MochiCompanionPreview
 ```
 
+## Search checks
+
+```bash
+bash scripts/test-search.sh
+```
+
+These checks cover song/artist query encoding, optional metadata, unavailable tracks, duplicate and invalid results, token refresh/retry, cancellation, stale responses, rate limits, selected-track request bodies, current-device targeting, serialized playback, and disconnect behavior. All requests are intercepted and use fake tokens.
+
 ## Project layout
 
 ```text
 Mochi/
   Mochi.xcodeproj/        Native macOS project
   Mochi/                 SwiftUI interface, desktop windows, authentication and playback
-Tests/                   Authentication, playback and companion checks
+Tests/                   Authentication, playback, search and companion checks
 scripts/                 Compile and run the checks
 docs/spotify-auth.md     Authentication walkthrough
 backend/                 Reserved for the planned Python service
@@ -165,6 +190,8 @@ design/                  Mascot, UI references, app icon source and previews
 `SpotifyAuthModel` coordinates authentication independently of the view. The app owns this model, so dismissing the menu-bar panel does not cancel login. Tokens stay in Keychain; temporary verifier and state values stay in memory for the login attempt.
 
 `SpotifyPlaybackClient.swift` contains the playback requests and the types used to read Spotify's responses. `SpotifyPlaybackModel` manages the displayed state, busy/error status, and control sequencing. `NowPlayingView` displays that state and calls the model when you click a button. The app owns both models, keeping authentication and playback separate from the interface.
+
+`SpotifySearchClient.swift` searches the catalog and decodes track results. `SpotifySearchModel.swift` owns query/result state, cancellation, and selection, while obtaining tokens through the authentication model and starting tracks through the shared playback model. `MochiAppDelegate` owns authentication and playback for the whole app session and restores the connection at launch.
 
 The smaller authentication helpers are grouped by their role:
 
@@ -192,4 +219,4 @@ Natural-language request
 
 Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The planned backend uses Python and FastAPI, with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
 
-Next milestones are track search and resolution, conversational discovery, and communication with the Python backend.
+Next is the Python backend and its API contract with the native client. Semantic retrieval, personalized ranking, and confidence-based resolution of independently recommended tracks remain planned.

@@ -22,6 +22,7 @@ final class SpotifySearchModel: ObservableObject {
     private var playTask: Task<Void, Never>?
     private var version = 0
     private var retryAfter: Date?
+    private var quotaExceeded = false
 
     init(client: SpotifySearchClient? = nil) { self.client = client ?? SpotifySearchClient() }
 
@@ -52,7 +53,8 @@ final class SpotifySearchModel: ObservableObject {
             return
         }
         if let retryAfter, retryAfter > Date() {
-            message = SpotifySearchError.rateLimited(retryAfter.timeIntervalSinceNow).localizedDescription
+            message = (quotaExceeded ? SpotifySearchError.quotaExceeded(0)
+                       : .rateLimited(retryAfter.timeIntervalSinceNow)).localizedDescription
             return
         }
         cancelSearch()
@@ -81,12 +83,17 @@ final class SpotifySearchModel: ObservableObject {
                 }
                 try self.check(current, connection: connection, auth: auth)
                 self.results = tracks
+                self.quotaExceeded = false
                 self.message = tracks.isEmpty ? "No matches. Try another song or artist." : nil
             } catch {
                 guard current == self.version, !(error is CancellationError),
                       (error as? URLError)?.code != .cancelled else { return }
                 if case SpotifySearchError.rateLimited(let seconds) = error {
                     self.retryAfter = Date().addingTimeInterval(seconds)
+                    self.quotaExceeded = false
+                } else if case SpotifySearchError.quotaExceeded(let seconds) = error {
+                    self.retryAfter = Date().addingTimeInterval(seconds)
+                    self.quotaExceeded = true
                 }
                 self.message = error.localizedDescription
             }

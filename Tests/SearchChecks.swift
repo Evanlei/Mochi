@@ -129,6 +129,15 @@ struct SearchChecks {
         precondition(SpotifyMockProtocol.server.requests().count == 1)
         print("PASS: one-time token refresh/retry and rate-limit cooldown")
 
+        let quotaModel = SpotifySearchModel(client: client)
+        quotaModel.configure(using: connected, playback: playback)
+        SpotifyMockProtocol.server.configure([SpotifyReply(status: 429,
+            data: Data(#"{"error":{"reason":"QUOTA_EXCEEDED"}}"#.utf8), headers: ["Retry-After": "60"])])
+        quotaModel.query = "test"; quotaModel.search(); try await settled(quotaModel)
+        quotaModel.reset(); quotaModel.query = "test"; quotaModel.search()
+        precondition(quotaModel.message?.contains("quota") == true && SpotifyMockProtocol.server.requests().count == 1)
+        print("PASS: quota-exhausted message and cooldown survive clearing the card")
+
         let playModel = SpotifySearchModel(client: client)
         playModel.configure(using: connected, playback: playback)
         SpotifyMockProtocol.server.configure([try page()])
@@ -157,11 +166,39 @@ struct SearchChecks {
         SpotifyMockProtocol.server.configure([try state(restricted: true)])
         playModel.play(selected); try await settled(playModel)
         precondition(SpotifyMockProtocol.server.requests().count == 1 && playModel.message != nil)
+        SpotifyMockProtocol.server.configure([try state(), SpotifyReply(status: 404)])
+        playModel.play(selected); try await settled(playModel)
+        precondition(SpotifyMockProtocol.server.requests().count == 2 && playModel.message?.contains("No Spotify player") == true)
+        SpotifyMockProtocol.server.configure([try state(), SpotifyReply(status: 204), SpotifyReply(status: 500)])
+        playModel.play(selected); try await settled(playModel)
+        precondition(playModel.message?.contains("accepted") == true && playback.isStale)
+        SpotifyMockProtocol.server.configure([try state(), SpotifyReply(status: 401), refreshed,
+                                              try state(), SpotifyReply(status: 204), try state()])
+        playModel.play(selected); try await settled(playModel)
+        let retriedPlay = SpotifyMockProtocol.server.requests()
+        precondition(retriedPlay.count == 6 && retriedPlay[2].url?.path == "/api/token")
+        precondition(retriedPlay[4].value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access")
+        precondition(!playback.isStale)
         SpotifyMockProtocol.server.configure([])
         do { try await player.startTrack(uri: "spotify:episode:\(id)", accessToken: "fake-access", deviceID: nil); fatalError("Invalid URI accepted") }
         catch SpotifyPlaybackError.invalidTrack { }
         precondition(SpotifyMockProtocol.server.requests().isEmpty)
         print("PASS: no retry after uncertain playback outcome, restricted device, and invalid URI rejection")
+
+        let signOutAuth = await auth()
+        let signOutPlayback = SpotifyPlaybackModel(client: player)
+        let signOutModel = SpotifySearchModel(client: client)
+        signOutModel.configure(using: signOutAuth, playback: signOutPlayback)
+        SpotifyMockProtocol.server.configure([try page()])
+        signOutModel.query = "test"; signOutModel.search(); try await settled(signOutModel)
+        var slowState = try state(); slowState.delay = 0.15
+        SpotifyMockProtocol.server.configure([slowState])
+        signOutModel.play(signOutModel.results[0])
+        try await Task.sleep(for: .milliseconds(20))
+        signOutAuth.disconnect(); signOutPlayback.reset()
+        try await Task.sleep(for: .milliseconds(170))
+        precondition(SpotifyMockProtocol.server.requests().count == 1 && !signOutModel.isStarting && !signOutPlayback.isBusy)
+        print("PASS: no track-start command after disconnect during device lookup")
 
         SpotifyMockProtocol.server.configure([slow])
         playModel.search()

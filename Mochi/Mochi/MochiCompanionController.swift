@@ -6,13 +6,47 @@ import SwiftUI
 
 @MainActor
 final class MochiAppDelegate: NSObject, NSApplicationDelegate {
-    let companion = MochiCompanionController()
+    let spotify: SpotifyAuthModel
+    let playback: SpotifyPlaybackModel
+    let companion: MochiCompanionController
+    private var connectionSubscription: AnyCancellable?
+    private var restoreTask: Task<Void, Never>?
+
+    override convenience init() {
+        self.init(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(), companion: MochiCompanionController())
+    }
+
+    init(spotify: SpotifyAuthModel, playback: SpotifyPlaybackModel, companion: MochiCompanionController) {
+        self.spotify = spotify
+        self.playback = playback
+        self.companion = companion
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        companion.search.configure(using: spotify, playback: playback)
+        companion.observeMusicPlayback(
+            playback.$state.combineLatest(playback.$isStale)
+                .map { state, stale in state?.isPlaying == true && !stale }
+                .eraseToAnyPublisher()
+        )
+        connectionSubscription = spotify.$isConnected.removeDuplicates().sink { [weak self] connected in
+            guard let self else { return }
+            self.playback.reset()
+            if connected {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.playback.refresh(using: self.spotify)
+                }
+            }
+        }
         companion.start()
+        restoreTask = Task { [weak self] in await self?.spotify.restore() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        restoreTask?.cancel()
+        connectionSubscription?.cancel()
         companion.stop()
     }
 }
@@ -23,6 +57,7 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
 final class MochiCompanionController: ObservableObject {
     @Published private(set) var isVisible: Bool
     let request = MochiRequestModel()
+    let search: SpotifySearchModel
     private(set) var mascotPanel: NSPanel?
     private(set) var cardPanel: NSPanel?
 
@@ -31,12 +66,14 @@ final class MochiCompanionController: ObservableObject {
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private var musicSubscription: AnyCancellable?
+    private var cardSizeSubscription: AnyCancellable?
     private var isMusicPlaying = false
     private let mascotSize = NSSize(width: 108, height: 100)
-    private let cardSize = MochiCompanionCard.size
+    private var cardSize: CGSize { request.isSearchPresented ? MochiCompanionCard.searchSize : MochiCompanionCard.size }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil) {
         self.defaults = defaults
+        self.search = search ?? SpotifySearchModel()
         isVisible = defaults.object(forKey: "mochi.companion.visible") as? Bool ?? true
     }
 
@@ -56,8 +93,17 @@ final class MochiCompanionController: ObservableObject {
 
         let card = CompanionPanel(contentRect: NSRect(origin: .zero, size: cardSize), acceptsKeyboard: true)
         card.title = "Talk to Mochi"
-        card.contentView = NSHostingView(rootView: MochiCompanionCard(request: request) { [weak self] in self?.closeCard() })
+        let cardView = NSHostingView(rootView: MochiCompanionCard(request: request, search: search) { [weak self] in self?.closeCard() })
+        // This controller owns the two panel sizes; stale intrinsic constraints must not pin it to 180 points.
+        cardView.sizingOptions = []
+        card.contentView = cardView
         cardPanel = card
+        // @Published emits before assigning the property. Resize on the next run-loop turn
+        // so a synchronous hosting-view layout cannot consume the old mode and text binding.
+        cardSizeSubscription = request.$isSearchPresented.dropFirst().receive(on: RunLoop.main).sink { [weak self] expanded in
+            self?.cardPanel?.setContentSize(expanded ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
+            self?.positionCard()
+        }
 
         let saved = defaults.dictionary(forKey: "mochi.companion.position")
         let origin: NSPoint
@@ -125,6 +171,9 @@ final class MochiCompanionController: ObservableObject {
     }
 
     func stop() {
+        search.reset()
+        cardSizeSubscription?.cancel()
+        cardSizeSubscription = nil
         musicSubscription?.cancel()
         musicSubscription = nil
         savePosition()
@@ -141,7 +190,7 @@ final class MochiCompanionController: ObservableObject {
         guard let mascotPanel, let cardPanel,
               let frame = CompanionPlacement.closestFrame(to: NSPoint(x: mascotPanel.frame.midX, y: mascotPanel.frame.midY),
                                                            frames: NSScreen.screens.map(\.visibleFrame)) else { return }
-        cardPanel.setFrameOrigin(CompanionPlacement.cardOrigin(near: mascotPanel.frame, size: cardSize, inside: frame))
+        cardPanel.setFrameOrigin(CompanionPlacement.cardOrigin(near: mascotPanel.frame, size: cardPanel.frame.size, inside: frame))
     }
 
     private func monitorOutsideClicks() {

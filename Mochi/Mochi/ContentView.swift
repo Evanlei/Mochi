@@ -38,9 +38,8 @@ struct ContentView: View {
         }
         .padding()
         .frame(width: 380)
-        .task { await spotify.restore() }
-        .task(id: spotify.isConnected) {
-            playback.reset()
+        .task {
+            // Opening the menu refreshes its snapshot without resetting shared in-flight work.
             if spotify.isConnected { await playback.refresh(using: spotify) }
         }
     }

@@ -41,6 +41,11 @@ final class SpotifySearchClient {
         case 429:
             let rawDelay = Double(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
             let delay = rawDelay.isFinite ? min(max(rawDelay, 1), 86_400) : 60
+            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let nested = body?["error"] as? [String: Any]
+            if (body?["reason"] as? String ?? nested?["reason"] as? String) == "QUOTA_EXCEEDED" {
+                throw SpotifySearchError.quotaExceeded(delay)
+            }
             throw SpotifySearchError.rateLimited(delay)
         default: throw SpotifySearchError.requestFailed(response.statusCode)
         }
@@ -98,7 +103,7 @@ struct SpotifySearchTrack: Decodable, Identifiable, Sendable {
 
 enum SpotifySearchError: LocalizedError {
     case unauthorized, forbidden, unexpectedResponse
-    case rateLimited(TimeInterval), requestFailed(Int)
+    case rateLimited(TimeInterval), quotaExceeded(TimeInterval), requestFailed(Int)
 
     var errorDescription: String? {
         switch self {
@@ -106,6 +111,7 @@ enum SpotifySearchError: LocalizedError {
         case .forbidden: "Spotify did not allow this search. Check your app access in the Spotify dashboard."
         case .unexpectedResponse: "Mochi could not read Spotify's search results. Try searching again."
         case .rateLimited(let seconds): "Spotify asked Mochi to wait \(Int(seconds.rounded(.up))) seconds before searching again."
+        case .quotaExceeded: "Spotify's API quota is exhausted. Try again later."
         case .requestFailed(let status): "Spotify search failed (HTTP \(status)). Try again."
         }
     }

@@ -9,11 +9,11 @@ Mochi uses OAuth Authorization Code with PKCE to obtain permission to read and c
 3. Open the music-note menu-bar panel and click **Connect Spotify**.
 4. Sign in and approve the permissions on Spotify's own page.
 5. The browser will show that Spotify answered Mochi. Return to the panel and wait for **Spotify connected.** That status appears only after token exchange and Keychain storage succeed.
-6. Quit and relaunch the app. Opening the panel restores the saved connection, refreshing the access token if necessary.
+6. Quit and relaunch the app. Mochi restores the saved connection at launch, refreshing the access token if necessary.
 
 Declining access leaves Mochi disconnected. **Cancel** stops the pending login. A login times out after three minutes. **Disconnect** deletes Mochi's local saved tokens; it does not revoke the app's grant on Spotify. To revoke the grant remotely, remove Mochi from the connected-apps page of your Spotify account.
 
-The floating Mochi card collects listening preferences using local follow-up prompts. The separate menu-bar Now Playing panel reads playback and provides play/pause, previous, and next controls. Track search and recommendations are future work.
+The floating Mochi card collects listening preferences using local follow-up prompts and offers a separate song/artist search mode with selected-track playback. The menu-bar Now Playing panel reads playback and provides play/pause, previous, and next controls. Recommendations remain future work.
 
 ## What happens when you connect
 
@@ -36,14 +36,14 @@ The floating Mochi card collects listening preferences using local follow-up pro
 | Challenge | Fingerprint of the verifier | Authorization URL; not secret |
 | State | Associates the callback with our login attempt | Authorization URL and callback, compared locally |
 | Authorization code | Temporary ticket after approval | Browser callback, then HTTPS token exchange |
-| Access token | Pass for approved API operations | Keychain, then playback API Authorization headers |
+| Access token | Pass for approved API operations | Keychain, then Spotify API Authorization headers |
 | Refresh token | Obtains a replacement access token | Keychain and HTTPS token endpoint |
 
 PKCE protects a stolen authorization code from being redeemed without the verifier. It does not protect an already-stolen access token. HTTPS protects the verifier and token exchange in transit; Keychain stores tokens outside the repository.
 
 ## State ownership and asynchronous code
 
-`MochiApp` owns one `SpotifyAuthModel` through `@StateObject`. `ContentView` observes it with `@ObservedObject`. The model's `@Published` properties drive the status text, progress indicator and buttons. Closing the panel does not destroy the app-owned model or its login task.
+`MochiAppDelegate` owns one `SpotifyAuthModel` and one `SpotifyPlaybackModel` for the app session. It restores the connection at launch and shares these models with the menu-bar panel and companion search. `ContentView` observes them with `@ObservedObject`. The models' `@Published` properties drive status text, progress indicators and buttons. Closing either panel does not destroy the models or their work.
 
 `async`/`await` lets the code wait for the browser response or Spotify's network response without blocking the UI. The listener uses a checked continuation to turn connection callbacks into one awaited result. Every success, failure, timeout and cancellation resumes that result once and cleans up the listener and connections.
 

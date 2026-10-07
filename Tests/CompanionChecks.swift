@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 @main
 struct CompanionChecks {
@@ -28,9 +29,13 @@ struct CompanionChecks {
         let suite = "com.evan.Mochi.companion-checks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SpotifyMockProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let search = SpotifySearchModel(client: SpotifySearchClient(session: session))
         // Simulate a remembered display that is no longer connected.
         defaults.set(["x": -100_000.0, "y": -100_000.0], forKey: "mochi.companion.position")
-        let companion = MochiCompanionController(defaults: defaults)
+        let companion = MochiCompanionController(defaults: defaults, search: search)
         companion.start()
         defer { companion.stop() }
         let mascot = companion.mascotPanel!
@@ -82,6 +87,121 @@ struct CompanionChecks {
         precondition(mascot.contentView!.accessibilityPerformPress())
         precondition(companion.request.summary == "Soft piano for studying")
         print("PASS: native panel creation, accessible toggle, keyboard typing/Return/Escape, and request retention")
+
+        // Exercise SwiftUI buttons through their native accessibility actions.
+        func value(_ name: String, from element: NSObject) -> Any? {
+            let selector = NSSelectorFromString(name)
+            guard element.responds(to: selector) else { return nil }
+            return element.perform(selector)?.takeUnretainedValue()
+        }
+        func button(_ label: String, in element: NSObject) -> NSObject? {
+            if value("accessibilityLabel", from: element) as? String == label,
+               value("accessibilityRole", from: element) as? String == "AXButton" { return element }
+            for child in value("accessibilityChildren", from: element) as? [Any] ?? [] {
+                if let child = child as? NSObject, let found = button(label, in: child) { return found }
+            }
+            return nil
+        }
+        func press(_ element: NSObject) -> Bool {
+            let selector = NSSelectorFromString("accessibilityPerformPress")
+            let action = unsafeBitCast(element.method(for: selector), to: (@convention(c) (NSObject, Selector) -> Bool).self)
+            return action(element, selector)
+        }
+        guard let toggle = button("Search songs and artists", in: card.contentView!) else {
+            fatalError("Search toggle is not accessible")
+        }
+        precondition(press(toggle))
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(companion.request.isSearchPresented, "Search button did not switch modes")
+        precondition(card.frame.size == MochiCompanionCard.searchSize, "Expanded card size was \(card.frame.size)")
+        precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
+        SpotifyMockProtocol.server.configure([])
+        guard let searchInput = card.firstResponder as? NSTextInputClient else { fatalError("Search lost keyboard focus") }
+        searchInput.insertText("Test Song", replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await Task.sleep(for: .milliseconds(50))
+        precondition(search.query == "Test Song", "Search query was '\(search.query)', request draft was '\(companion.request.draft)'")
+        card.sendEvent(enter)
+        try await Task.sleep(for: .milliseconds(50))
+        precondition(search.message?.contains("Connect Spotify") == true && SpotifyMockProtocol.server.requests().isEmpty)
+        print("PASS: accessible search toggle, card expansion, keyboard input, and disconnected guidance")
+
+        let store = SpotifyMemoryStore()
+        store.tokens = SpotifyTokens(accessToken: "fake-access", refreshToken: "fake-refresh",
+            expiresAt: Date().addingTimeInterval(3600), scope: SpotifyConfiguration.scopes.joined(separator: " "))
+        let auth = SpotifyAuthModel(tokenClient: SpotifyTokenClient(session: session), tokenStore: store)
+        let playback = SpotifyPlaybackModel(client: SpotifyPlaybackClient(session: session))
+        let playing = Data(#"{"is_playing":true,"device":{"id":"test-device","is_restricted":false},"item":{"name":"Test Song","type":"track","artists":[{"name":"Test Artist"}]}}"#.utf8)
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: playing)])
+        let delegate = MochiAppDelegate(spotify: auth, playback: playback, companion: companion)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        defer { delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification)) }
+        let restoreDeadline = Date().addingTimeInterval(3)
+        while playback.lastUpdatedAt == nil {
+            precondition(Date() < restoreDeadline, "Launch did not restore connection and playback")
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(auth.isConnected && search.isConnected && SpotifyMockProtocol.server.requests().count == 1)
+        print("PASS: app launch restores shared Spotify connection and playback without opening the menu")
+
+        let tracks = (1...5).map { index -> [String: Any] in
+            let id = String(repeating: "0", count: 21) + String(index)
+            return ["id": id, "uri": "spotify:track:\(id)", "type": "track", "name": "Test Song \(index)",
+                    "artists": [["name": "Test Artist"]], "album": ["name": "Test Album", "images": []]]
+        }
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: try JSONSerialization.data(withJSONObject: ["tracks": ["items": tracks]]))])
+        search.query = "Test Song"
+        card.sendEvent(enter)
+        let searchDeadline = Date().addingTimeInterval(3)
+        while search.isSearching {
+            precondition(Date() < searchDeadline)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(search.results.count == 5)
+        if let previewDirectory = CommandLine.arguments.dropFirst().first {
+            let view = card.contentView!
+            view.layoutSubtreeIfNeeded()
+            let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: image)
+            let path = URL(fileURLWithPath: previewDirectory).appendingPathComponent("search-card.png")
+            try image.representation(using: .png, properties: [:])!.write(to: path)
+        }
+        guard let play = button("Play Test Song 1 by Test Artist", in: card.contentView!) else {
+            fatalError("Search result play button is not accessible")
+        }
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: playing), SpotifyReply(status: 204), SpotifyReply(data: playing)])
+        precondition(press(play))
+        let playDeadline = Date().addingTimeInterval(3)
+        while search.isStarting {
+            precondition(Date() < playDeadline)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(SpotifyMockProtocol.server.requests().count == 3 && search.message == "Sent Test Song 1 to Spotify.")
+        let payload = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[1])!) as! [String: Any]
+        precondition(payload["uris"] as? [String] == ["spotify:track:0000000000000000000001"])
+
+        // Menu appearance still refreshes its snapshot, while lifetime/reset belongs to the delegate.
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: playing)])
+        let menu = NSPanel(contentRect: NSRect(x: 80, y: 80, width: 380, height: 420),
+                           styleMask: .borderless, backing: .buffered, defer: false)
+        menu.contentView = NSHostingView(rootView: ContentView(spotify: auth, playback: playback, companion: companion))
+        menu.orderFrontRegardless()
+        let menuDeadline = Date().addingTimeInterval(3)
+        while SpotifyMockProtocol.server.requests().isEmpty || playback.isBusy {
+            precondition(Date() < menuDeadline, "Menu appearance did not refresh playback")
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(SpotifyMockProtocol.server.requests().count == 1 && playback.state != nil)
+        menu.orderOut(nil)
+        menu.contentView = nil
+        print("PASS: menu appearance refreshes the shared playback snapshot")
+
+        guard let back = button("Back to listening request", in: card.contentView!) else { fatalError("Missing back button") }
+        precondition(press(back))
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(!companion.request.isSearchPresented && card.frame.size == MochiCompanionCard.size)
+        precondition(companion.request.summary == "Soft piano for studying")
+        print("PASS: Return searches, rendered results, native result-click playback, and compact mode restoration")
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
