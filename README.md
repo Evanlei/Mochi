@@ -26,7 +26,7 @@ The floating companion, listening-request card, local Python backend connection,
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now reach the local Python backend, which validates and echoes the text. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
+**Mood requests now reach the local Python backend, which validates and echoes the text and detects an explicit vocal preference. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
 
 ## Requirements
 

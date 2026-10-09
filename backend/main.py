@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
+from intent import parse_intent
 
 app = FastAPI()
 
@@ -12,9 +13,18 @@ class ListeningRequest(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=500)
 
+class ListeningIntent(BaseModel):
+    vocals: bool | None
+
 class ListeningResponse(BaseModel):
     received_prompt: str
+    intent: ListeningIntent
 
 @app.post("/listening-request", response_model=ListeningResponse)
 def receive_listening_request(request: ListeningRequest):
-    return ListeningResponse(received_prompt=request.prompt)
+    parsed = parse_intent(request.prompt)
+
+    return ListeningResponse(
+        received_prompt=request.prompt,
+        intent=ListeningIntent(vocals=parsed["vocals"])
+    )
