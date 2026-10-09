@@ -1,13 +1,13 @@
 # Local backend walkthrough
 
-Mochi can now send listening text from the native card to Python and display confirmation. This establishes the connection that the recommendation system will eventually use. The current backend validates and echoes text and detects a vocal preference from a few explicit phrases. It does not choose songs, start music, save requests to a database, or receive Spotify credentials.
+Mochi can now send listening text from the native card to Python and display confirmation. This establishes the connection that the recommendation system will eventually use. The current backend validates and echoes text and detects vocal and energy preferences from a few explicit phrases. It does not choose songs, start music, save requests to a database, or receive Spotify credentials.
 
 ## What happens when you press Send
 
 1. `MochiRequestModel.submit()` reads your text or the quick choice you clicked. It trims whitespace, marks the request as pending, and shows **Sending your request…**.
 2. `MochiBackendClient.send()` converts `MochiListeningRequest` into JSON and sends a POST request to `http://127.0.0.1:8000/listening-request`.
 3. FastAPI matches that address to `receive_listening_request()`. Pydantic checks that the JSON contains a text field named `prompt`, removes leading/trailing whitespace, and requires 1–500 characters afterward. Invalid input receives HTTP 422 before the route function runs.
-4. `parse_intent()` in `backend/intent.py` checks the lowercased text for `no vocals` or `with vocals`. The route includes the result in a `ListeningResponse`. FastAPI checks its format and converts it to JSON.
+4. `parse_intent()` in `backend/intent.py` checks the lowercased text for vocal and energy phrases. The route includes both preferences in a `ListeningResponse`. FastAPI checks its format and converts it to JSON.
 5. Swift checks for HTTP 200 and decodes the JSON into `MochiListeningResponse`. `CodingKeys` maps Python's `received_prompt` to Swift's `receivedPrompt`. The client also checks that Python echoed the submitted text.
 6. The model adds the confirmed text to the session's summary and displays **Request received. Recommendations are coming next.** It clears the submitted draft while preserving any new text you typed during the wait.
 
@@ -30,12 +30,12 @@ Mochi can now send listening text from the native card to Python and display con
 It returns HTTP 200:
 
 ```json
-{"received_prompt": "relaxing music for studying", "intent": {"vocals": null}}
+{"received_prompt": "relaxing music for studying", "intent": {"vocals": null, "energy": "low"}}
 ```
 
 `intent.vocals` is `false` for `no vocals`, `true` for `with vocals`, and `null` if neither phrase appears. `null` represents Python's `None`: no preference was detected. These initial rules match phrases rather than interpreting arbitrary language; the first matching rule wins. Swift currently reads the confirmed text and ignores the additional intent field.
 
-The parser also detects `relaxing` as low energy and `energetic` as high energy, with `None` when neither appears. It collects vocals and energy before returning, so one preference cannot stop detection of the other. Energy is currently tested at the parser level; adding it to `ListeningIntent` and the route response is the next step.
+`intent.energy` is `"low"` for `relaxing`, `"high"` for `energetic`, and `null` when neither appears. The parser collects vocals and energy before returning, so one preference cannot stop detection of the other. Automated checks cover the parser and both fields in the API response.
 
 Missing, non-text, blank, or overlong prompts receive HTTP 422. Length is measured in Python characters (Unicode code points); Swift checks Unicode scalar count to match it. Spaces between words remain intact. The browser testing page at `/docs` documents these formats and can send example requests without running Mochi.
 

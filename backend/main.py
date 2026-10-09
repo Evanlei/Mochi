@@ -15,6 +15,7 @@ class ListeningRequest(BaseModel):
 
 class ListeningIntent(BaseModel):
     vocals: bool | None
+    energy: str | None
 
 class ListeningResponse(BaseModel):
     received_prompt: str
@@ -26,5 +27,8 @@ def receive_listening_request(request: ListeningRequest):
 
     return ListeningResponse(
         received_prompt=request.prompt,
-        intent=ListeningIntent(vocals=parsed["vocals"])
+        intent=ListeningIntent(
+            energy=parsed["energy"],
+            vocals=parsed["vocals"]
+        )
     )

@@ -42,16 +42,20 @@ class BackendChecks(unittest.TestCase):
         text = "夜の piano 🎵"
         response = self.client.post("/listening-request", json={"prompt": f"  {text}  "})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"received_prompt": text, "intent": {"vocals": None}})
+        self.assertEqual(response.json(), {"received_prompt": text, "intent": {"vocals": None, "energy": None}})
 
-    def test_vocal_preferences_in_api_response(self):
-        for prompt, vocals in (("relaxing music, no vocals", False),
-                              ("energetic pop with vocals", True),
-                              ("relaxing music", None), ("NO VOCALS", False)):
+    def test_vocals_and_energy_in_api_response(self):
+        for prompt, vocals, energy in (("relaxing music, no vocals", False, "low"),
+                                      ("energetic pop with vocals", True, "high"),
+                                      ("relaxing music", None, "low"),
+                                      ("energetic music", None, "high"),
+                                      ("NO VOCALS", False, None),
+                                      ("ENERGETIC MUSIC WITH VOCALS", True, "high"),
+                                      ("music for studying", None, None)):
             with self.subTest(prompt=prompt):
                 response = self.client.post("/listening-request", json={"prompt": prompt})
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json(), {"received_prompt": prompt, "intent": {"vocals": vocals}})
+                self.assertEqual(response.json(), {"received_prompt": prompt, "intent": {"vocals": vocals, "energy": energy}})
 
     def test_invalid_input_is_rejected(self):
         for body in ({}, {"prompt": None}, {"prompt": 42}, {"prompt": ""},
@@ -73,6 +77,8 @@ class BackendChecks(unittest.TestCase):
         schema = self.client.get("/openapi.json").json()
         response = schema["paths"]["/listening-request"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
         self.assertEqual(response["$ref"], "#/components/schemas/ListeningResponse")
+        intent = schema["components"]["schemas"]["ListeningIntent"]
+        self.assertEqual(set(intent["required"]), {"vocals", "energy"})
 
 
 if __name__ == "__main__":
