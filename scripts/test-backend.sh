@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 backend/.venv/bin/python Tests/BackendChecks.py
+if [[ "${1:-}" == "--python-only" ]]; then
+    exit 0
+fi
 test_build_dir=$(mktemp -d /private/tmp/mochi-backend-tests.XXXXXX)
 trap 'rm -rf "$test_build_dir"' EXIT
 xcrun swiftc -parse-as-library -swift-version 5 \

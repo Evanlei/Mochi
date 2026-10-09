@@ -35,6 +35,8 @@ It returns HTTP 200:
 
 `intent.vocals` is `false` for `no vocals`, `true` for `with vocals`, and `null` if neither phrase appears. `null` represents Python's `None`: no preference was detected. These initial rules match phrases rather than interpreting arbitrary language; the first matching rule wins. Swift currently reads the confirmed text and ignores the additional intent field.
 
+The parser also detects `relaxing` as low energy and `energetic` as high energy, with `None` when neither appears. It collects vocals and energy before returning, so one preference cannot stop detection of the other. Energy is currently tested at the parser level; adding it to `ListeningIntent` and the route response is the next step.
+
 Missing, non-text, blank, or overlong prompts receive HTTP 422. Length is measured in Python characters (Unicode code points); Swift checks Unicode scalar count to match it. Spaces between words remain intact. The browser testing page at `/docs` documents these formats and can send example requests without running Mochi.
 
 ## Waiting, failure, and cancellation

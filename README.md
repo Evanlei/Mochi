@@ -202,7 +202,15 @@ After `uv sync` in `backend/`, run from the repository root:
 bash scripts/test-backend.sh
 ```
 
-These check Python input validation and the response contract, Swift request encoding and response decoding, unavailable servers, timeouts, invalid responses, duplicate submission, failure/retry, and reset while a response is pending. Requests are simulated by default. With the development server running, add `--live` to also verify a real Swift-to-Python request.
+These check Python input validation, vocals/energy parsing and the response contract, Swift request encoding and response decoding, unavailable servers, timeouts, invalid responses, duplicate submission, failure/retry, and reset while a response is pending. Requests are simulated by default. With the development server running, add `--live` to also verify a real Swift-to-Python request.
+
+For fast checks while working on Python, without starting the backend or compiling Swift:
+
+```bash
+bash scripts/test-backend.sh --python-only
+```
+
+The Python tests check vocal and energy preferences, unspecified preferences, uppercase input, combined requests, trimming, Unicode, input limits, malformed JSON, and the documented response format. Failures identify the test and example that failed.
 
 The native companion checks use a simulated backend by default. With the development server running, `bash scripts/test-companion.sh --live-backend` exercises Return submission through the real backend and confirms the response appears in the card.
 

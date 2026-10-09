@@ -1,11 +1,19 @@
 def parse_intent(prompt: str):
     text = prompt.lower()
 
+    vocals = None
     if "no vocals" in text:
-        return {"vocals": False}
+        vocals = False
+    elif "with vocals" in text:
+        vocals = True
 
-    if "with vocals" in text:
-        return {"vocals": True}
+    energy = None
+    if "relaxing" in text:
+        energy = "low"
+    elif "energetic" in text:
+        energy = "high"
 
-    return {"vocals": None}
-
+    return {
+        "vocals": vocals,
+        "energy": energy
+    }
