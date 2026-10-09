@@ -4,14 +4,15 @@
 
 A native macOS music companion, built with Swift and SwiftUI. A small floating Mochi collects listening requests, while the menu-bar panel controls Spotify playback. Mochi is being developed to turn those requests into personalized recommendations.
 
-The floating companion, listening-request card, Spotify authorization, catalog search, selected-track playback, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
+The floating companion, listening-request card, local Python backend connection, Spotify authorization, catalog search, selected-track playback, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
 
 ## Current functionality
 
 - A draggable sage Mochi character, matching the supplied SVG artwork.
 - Click Mochi to open or close a compact listening-request card.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
-- Local follow-up prompts and a summary of your preferences, retained while the app runs.
+- Listening text sent asynchronously to a local FastAPI backend, with validation and confirmation.
+- Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
 - Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
 - Loading, cancellation, empty-result, unavailable-track, and connection/error states for search.
 - Saved desktop position and visibility, plus Show/Hide Mochi and Quit in the menu-bar panel.
@@ -25,13 +26,14 @@ The floating companion, listening-request card, Spotify authorization, catalog s
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests still use simple local follow-up prompts; they do not generate recommendations or start playback. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
+**Mood requests now reach the local Python backend, which validates and echoes the text. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
 
 ## Requirements
 
 - macOS 26 or later.
 - Xcode with the macOS SDK and Swift toolchain. The project has been built with Swift 6.4.
 - Spotify Premium and a registered Spotify developer app for live authentication.
+- Python 3.12 or later and [uv](https://docs.astral.sh/uv/) for the local listening-request backend.
 
 Most source editing can be done in VS Code. Xcode provides the native project, build tools, signing, and debugger.
 
@@ -55,6 +57,24 @@ xcodebuild -project Mochi/Mochi.xcodeproj \
 ```
 
 The resulting app is `build/Build/Products/Debug/Mochi.app`. Build output is ignored by Git.
+
+## Run the local backend
+
+In a separate VS Code terminal, from the repository root:
+
+```bash
+cd backend
+uv sync
+uv run fastapi dev main.py
+```
+
+Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed.
+
+Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request or choose Focus, Unwind, or Surprise me. The card shows a loading indicator, followed by **Request received. Recommendations are coming next.** The summary contains the text Python confirmed.
+
+If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
+
+See [the backend walkthrough](docs/backend.md) for the request flow, code roles, API contract, and current limits.
 
 ## Connect Spotify
 
@@ -174,16 +194,28 @@ bash scripts/test-search.sh
 
 These checks cover song/artist query encoding, optional metadata, unavailable tracks, duplicate and invalid results, token refresh/retry, cancellation, stale responses, rate limits, selected-track request bodies, current-device targeting, serialized playback, and disconnect behavior. All requests are intercepted and use fake tokens.
 
+## Backend checks
+
+After `uv sync` in `backend/`, run from the repository root:
+
+```bash
+bash scripts/test-backend.sh
+```
+
+These check Python input validation and the response contract, Swift request encoding and response decoding, unavailable servers, timeouts, invalid responses, duplicate submission, failure/retry, and reset while a response is pending. Requests are simulated by default. With the development server running, add `--live` to also verify a real Swift-to-Python request.
+
+The native companion checks use a simulated backend by default. With the development server running, `bash scripts/test-companion.sh --live-backend` exercises Return submission through the real backend and confirms the response appears in the card.
+
 ## Project layout
 
 ```text
 Mochi/
   Mochi.xcodeproj/        Native macOS project
   Mochi/                 SwiftUI interface, desktop windows, authentication and playback
-Tests/                   Authentication, playback, search and companion checks
+Tests/                   Authentication, playback, search, backend and companion checks
 scripts/                 Compile and run the checks
 docs/spotify-auth.md     Authentication walkthrough
-backend/                 Reserved for the planned Python service
+backend/                 Local FastAPI service and locked Python dependencies
 design/                  Mascot, UI references, app icon source and previews
 ```
 
@@ -204,7 +236,7 @@ The smaller authentication helpers are grouped by their role:
 
 Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
-`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, its local request state, and vector drawing of the supplied character. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
+`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, request state, and vector drawing of the supplied character. `MochiBackendClient.swift` sends listening text to Python and reads its confirmation. `backend/main.py` defines the health and listening-request routes. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
 
 ## Planned recommendation architecture
 
@@ -217,6 +249,6 @@ Natural-language request
   → playback
 ```
 
-Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The planned backend uses Python and FastAPI, with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
+Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The initial Python/FastAPI connection is implemented; recommendation logic will begin with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
 
 Next is the Python backend and its API contract with the native client. Semantic retrieval, personalized ranking, and confidence-based resolution of independently recommended tracks remain planned.
