@@ -12,6 +12,9 @@ class ListeningRequest(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=500)
 
-@app.post("/listening-request")
+class ListeningResponse(BaseModel):
+    received_prompt: str
+
+@app.post("/listening-request", response_model=ListeningResponse)
 def receive_listening_request(request: ListeningRequest):
-    return {"received_prompt": request.prompt}
+    return ListeningResponse(received_prompt=request.prompt)
