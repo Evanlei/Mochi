@@ -10,22 +10,50 @@ final class MochiRequestModel: ObservableObject {
     @Published var draft = ""
     @Published private(set) var preferences: [String] = []
     @Published private(set) var reply = "What do you feel like\nlistening to?"
+    @Published private(set) var isSending = false
 
-    var canSubmit: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private let backend: MochiBackendClient
+    private var sendTask: Task<Void, Never>?
+    private var requestGeneration = UUID()
+
+    init(backend: MochiBackendClient? = nil) {
+        self.backend = backend ?? MochiBackendClient()
+    }
+
+    var canSubmit: Bool { !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var summary: String { preferences.joined(separator: " · ") }
 
     func submit(_ choice: String? = nil) {
         let text = (choice ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        // These preferences belong to this app session; discovery will consume them later.
-        preferences.append(String(text.prefix(500)))
-        draft = ""
-        reply = preferences.count == 1
-            ? "Any artist, song, or sound you'd like me to include?"
-            : "I've saved your preferences. Music discovery is coming next."
+        guard !text.isEmpty, !isSending else { return }
+        if choice != nil { draft = text }
+        isSending = true
+        reply = "Sending your request…"
+        let generation = requestGeneration
+        sendTask = Task { [weak self, backend] in
+            do {
+                let response = try await backend.send(prompt: text)
+                try Task.checkCancellation()
+                guard let self, self.requestGeneration == generation else { return }
+                self.preferences.append(response.receivedPrompt)
+                if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
+                self.reply = "Request received.\nRecommendations are coming next."
+                self.isSending = false
+                self.sendTask = nil
+            } catch {
+                guard !Task.isCancelled, let self, self.requestGeneration == generation else { return }
+                self.reply = (error as? MochiBackendError)?.errorDescription ?? "Couldn't send your request. Try again."
+                self.isSending = false
+                self.sendTask = nil
+            }
+        }
     }
 
     func reset() {
+        requestGeneration = UUID()
+        sendTask?.cancel()
+        sendTask = nil
+        isSending = false
         draft = ""
         preferences = []
         reply = "What do you feel like\nlistening to?"
@@ -58,7 +86,7 @@ struct MochiCompanionCard: View {
                 .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                 .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                 .accessibilityIdentifier("mochiSearchToggle")
-                if request.isSearchPresented ? !search.query.isEmpty : !request.preferences.isEmpty {
+                if request.isSearchPresented ? !search.query.isEmpty : (!request.preferences.isEmpty || request.isSending) {
                     Button {
                         if request.isSearchPresented { search.reset() } else { request.reset() }
                         composerFocused = true
@@ -120,7 +148,13 @@ struct MochiCompanionCard: View {
                     .accessibilityIdentifier("mochiComposer")
 
                 Button { submit() } label: {
-                    Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
+                    Group {
+                        if !request.isSearchPresented && request.isSending {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
+                        }
+                    }
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(hex: 0x60705E))
                         .frame(width: 26, height: 26)
@@ -250,6 +284,7 @@ struct MochiCompanionCard: View {
                 .overlay(Capsule().strokeBorder(Color(hex: 0xA5BCB6).opacity(0.45), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .disabled(request.isSending)
     }
 }
 

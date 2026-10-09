@@ -56,7 +56,7 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 final class MochiCompanionController: ObservableObject {
     @Published private(set) var isVisible: Bool
-    let request = MochiRequestModel()
+    let request: MochiRequestModel
     let search: SpotifySearchModel
     private(set) var mascotPanel: NSPanel?
     private(set) var cardPanel: NSPanel?
@@ -71,9 +71,10 @@ final class MochiCompanionController: ObservableObject {
     private let mascotSize = NSSize(width: 108, height: 100)
     private var cardSize: CGSize { request.isSearchPresented ? MochiCompanionCard.searchSize : MochiCompanionCard.size }
 
-    init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil) {
+    init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil, request: MochiRequestModel? = nil) {
         self.defaults = defaults
         self.search = search ?? SpotifySearchModel()
+        self.request = request ?? MochiRequestModel()
         isVisible = defaults.object(forKey: "mochi.companion.visible") as? Bool ?? true
     }
 
@@ -171,6 +172,7 @@ final class MochiCompanionController: ObservableObject {
     }
 
     func stop() {
+        request.reset()
         search.reset()
         cardSizeSubscription?.cancel()
         cardSizeSubscription = nil

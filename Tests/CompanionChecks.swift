@@ -35,7 +35,9 @@ struct CompanionChecks {
         let search = SpotifySearchModel(client: SpotifySearchClient(session: session))
         // Simulate a remembered display that is no longer connected.
         defaults.set(["x": -100_000.0, "y": -100_000.0], forKey: "mochi.companion.position")
-        let companion = MochiCompanionController(defaults: defaults, search: search)
+        let liveBackend = CommandLine.arguments.contains("--live-backend")
+        let requestModel = MochiRequestModel(backend: liveBackend ? MochiBackendClient() : MochiBackendClient(session: session))
+        let companion = MochiCompanionController(defaults: defaults, search: search, request: requestModel)
         companion.start()
         defer { companion.stop() }
         let mascot = companion.mascotPanel!
@@ -48,7 +50,7 @@ struct CompanionChecks {
         precondition(card.isVisible && NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
         try await Task.sleep(for: .milliseconds(300))
 
-        if let previewDirectory = CommandLine.arguments.dropFirst().first {
+        if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
             let directory = URL(fileURLWithPath: previewDirectory, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             for (name, panel) in [("card", card), ("mascot", mascot)] {
@@ -74,9 +76,17 @@ struct CompanionChecks {
         let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: card.windowNumber, context: nil, characters: "\r",
                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: Data(#"{"received_prompt":"Soft piano for studying"}"#.utf8))])
         card.sendEvent(enter)
+        let sendDeadline = Date().addingTimeInterval(3)
+        while companion.request.preferences.isEmpty {
+            precondition(Date() < sendDeadline, "Backend request never finished")
+            try await Task.sleep(for: .milliseconds(10))
+        }
         try await Task.sleep(for: .milliseconds(50))
         precondition(companion.request.summary == "Soft piano for studying" && companion.request.draft.isEmpty)
+        precondition(companion.request.reply.contains("Request received"))
+        if liveBackend { print("PASS: native card Return → real FastAPI → confirmed request in card") }
         let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                      windowNumber: card.windowNumber, context: nil, characters: "\u{1b}",
                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
@@ -158,7 +168,7 @@ struct CompanionChecks {
         }
         try await Task.sleep(for: .milliseconds(100))
         precondition(search.results.count == 5)
-        if let previewDirectory = CommandLine.arguments.dropFirst().first {
+        if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
             let view = card.contentView!
             view.layoutSubtreeIfNeeded()
             let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
