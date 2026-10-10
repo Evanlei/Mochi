@@ -1,0 +1,276 @@
+{
+  "source": "fictional_development_fixture",
+  "note": "Author-assigned relevance judgments on fictional descriptions. Acquisition order is an authored stand-in, not measured Last.fm ordering. No live recommendation quality claim.",
+  "cases": [
+    {
+      "prompt": "gentle piano for reading",
+      "candidates": [
+        {
+          "id": "sample-neon-run",
+          "title": "Neon Run",
+          "artist": "Mochi Electronic Studio",
+          "bpm": 128,
+          "vocals": false,
+          "energy": "high",
+          "description": "High-energy electronic dance music, driving bass, bright synths and a steady pounding beat for workouts and getting motivated. Instrumental.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-rough-edges",
+          "title": "Rough Edges",
+          "artist": "Mochi Rock Studio",
+          "bpm": 90,
+          "vocals": true,
+          "energy": "high",
+          "description": "Intense rock song with loud distorted guitars, forceful singing and heavy drums. A slow pounding pulse with powerful high-energy sound.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-velvet-room",
+          "title": "Velvet Room",
+          "artist": "Mochi Jazz Studio",
+          "bpm": 88,
+          "vocals": false,
+          "energy": "low",
+          "description": "Mellow instrumental jazz with saxophone, brushed drums and upright bass. Warm lounge atmosphere for a relaxed dinner or evening.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-quiet-window",
+          "title": "Quiet Window",
+          "artist": "Mochi Piano Studio",
+          "bpm": 72,
+          "vocals": false,
+          "energy": "low",
+          "description": "Soft solo piano, gentle repeating notes and a peaceful mellow mood for relaxing, reading or quiet study. Instrumental, with no singing.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-paper-lantern",
+          "title": "Paper Lantern",
+          "artist": "Mochi Piano Studio",
+          "bpm": 90,
+          "vocals": false,
+          "energy": "low",
+          "description": "Gentle acoustic piano, soothing flowing notes, quiet low-energy instrumental background for concentration and a peaceful evening.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-moonlit-keys",
+          "title": "Moonlit Keys",
+          "artist": "Mochi Piano Studio",
+          "bpm": 84,
+          "vocals": false,
+          "energy": "low",
+          "description": "Dreamy piano with warm sustained chords, a slow delicate melody and a late-night feeling. Calm instrumental music for winding down before bed.",
+          "source": "fictional_sample"
+        }
+      ],
+      "grades": {
+        "sample-neon-run": 0,
+        "sample-rough-edges": 0,
+        "sample-velvet-room": 1,
+        "sample-quiet-window": 3,
+        "sample-paper-lantern": 3,
+        "sample-moonlit-keys": 2
+      }
+    },
+    {
+      "prompt": "energetic electronic workout",
+      "candidates": [
+        {
+          "id": "sample-quiet-window",
+          "title": "Quiet Window",
+          "artist": "Mochi Piano Studio",
+          "bpm": 72,
+          "vocals": false,
+          "energy": "low",
+          "description": "Soft solo piano, gentle repeating notes and a peaceful mellow mood for relaxing, reading or quiet study. Instrumental, with no singing.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-porch-light",
+          "title": "Porch Light",
+          "artist": "Mochi Acoustic Studio",
+          "bpm": 92,
+          "vocals": true,
+          "energy": "low",
+          "description": "Gentle singing and thoughtful lyrics over soft acoustic guitar, a relaxed folk song for a quiet afternoon.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-ocean-glass",
+          "title": "Ocean Glass",
+          "artist": "Mochi Ambient Studio",
+          "bpm": null,
+          "vocals": false,
+          "energy": "low",
+          "description": "Quiet ambient soundscape, long shimmering synthesizer pads and ocean textures without a steady beat. Peaceful instrumental music for sleep and meditation.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-neon-run",
+          "title": "Neon Run",
+          "artist": "Mochi Electronic Studio",
+          "bpm": 128,
+          "vocals": false,
+          "energy": "high",
+          "description": "High-energy electronic dance music, driving bass, bright synths and a steady pounding beat for workouts and getting motivated. Instrumental.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-skyline-pulse",
+          "title": "Skyline Pulse",
+          "artist": "Mochi Electronic Studio",
+          "bpm": 140,
+          "vocals": false,
+          "energy": "high",
+          "description": "Fast instrumental electronic music with pulsing synthesizers and intense rhythmic drums for running, exercise and waking up.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-dusk-signal",
+          "title": "Dusk Signal",
+          "artist": "Mochi Beat Studio",
+          "bpm": 80,
+          "vocals": false,
+          "energy": "low",
+          "description": "Mellow lo-fi electronic beat with warm synth chords, dusty drums and a relaxed groove for focused coding or studying. Instrumental with no singing.",
+          "source": "fictional_sample"
+        }
+      ],
+      "grades": {
+        "sample-quiet-window": 0,
+        "sample-porch-light": 0,
+        "sample-ocean-glass": 0,
+        "sample-neon-run": 3,
+        "sample-skyline-pulse": 3,
+        "sample-dusk-signal": 1
+      }
+    },
+    {
+      "prompt": "warm acoustic guitar",
+      "candidates": [
+        {
+          "id": "sample-skyline-pulse",
+          "title": "Skyline Pulse",
+          "artist": "Mochi Electronic Studio",
+          "bpm": 140,
+          "vocals": false,
+          "energy": "high",
+          "description": "Fast instrumental electronic music with pulsing synthesizers and intense rhythmic drums for running, exercise and waking up.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-piano-sprint",
+          "title": "Piano Sprint",
+          "artist": "Mochi Piano Studio",
+          "bpm": 144,
+          "vocals": false,
+          "energy": "high",
+          "description": "Fast energetic piano with bright percussive notes, lively rhythms and an exciting instrumental melody to keep you moving.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-amber-strings",
+          "title": "Amber Strings",
+          "artist": "Mochi Acoustic Studio",
+          "bpm": 78,
+          "vocals": false,
+          "energy": "low",
+          "description": "Warm fingerpicked acoustic guitar, soft plucked strings and an intimate mellow instrumental sound for unwinding. Wordless music with no singing.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-porch-light",
+          "title": "Porch Light",
+          "artist": "Mochi Acoustic Studio",
+          "bpm": 92,
+          "vocals": true,
+          "energy": "low",
+          "description": "Gentle singing and thoughtful lyrics over soft acoustic guitar, a relaxed folk song for a quiet afternoon.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-quiet-window",
+          "title": "Quiet Window",
+          "artist": "Mochi Piano Studio",
+          "bpm": 72,
+          "vocals": false,
+          "energy": "low",
+          "description": "Soft solo piano, gentle repeating notes and a peaceful mellow mood for relaxing, reading or quiet study. Instrumental, with no singing.",
+          "source": "fictional_sample"
+        }
+      ],
+      "grades": {
+        "sample-skyline-pulse": 0,
+        "sample-piano-sprint": 0,
+        "sample-amber-strings": 3,
+        "sample-porch-light": 3,
+        "sample-quiet-window": 1
+      }
+    },
+    {
+      "prompt": "jazz saxophone lounge",
+      "candidates": [
+        {
+          "id": "sample-chamber-rush",
+          "title": "Chamber Rush",
+          "artist": "Mochi Chamber Studio",
+          "bpm": 132,
+          "vocals": false,
+          "energy": "high",
+          "description": "Energetic classical strings, quick violin passages and dramatic orchestral movement. Lively instrumental music with no singing.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-paper-lantern",
+          "title": "Paper Lantern",
+          "artist": "Mochi Piano Studio",
+          "bpm": 90,
+          "vocals": false,
+          "energy": "low",
+          "description": "Gentle acoustic piano, soothing flowing notes, quiet low-energy instrumental background for concentration and a peaceful evening.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-velvet-room",
+          "title": "Velvet Room",
+          "artist": "Mochi Jazz Studio",
+          "bpm": 88,
+          "vocals": false,
+          "energy": "low",
+          "description": "Mellow instrumental jazz with saxophone, brushed drums and upright bass. Warm lounge atmosphere for a relaxed dinner or evening.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-swing-steps",
+          "title": "Swing Steps",
+          "artist": "Mochi Jazz Studio",
+          "bpm": 156,
+          "vocals": false,
+          "energy": "high",
+          "description": "Lively instrumental swing jazz, punchy horns, walking bass and energetic drums for dancing and celebration.",
+          "source": "fictional_sample"
+        },
+        {
+          "id": "sample-dusk-signal",
+          "title": "Dusk Signal",
+          "artist": "Mochi Beat Studio",
+          "bpm": 80,
+          "vocals": false,
+          "energy": "low",
+          "description": "Mellow lo-fi electronic beat with warm synth chords, dusty drums and a relaxed groove for focused coding or studying. Instrumental with no singing.",
+          "source": "fictional_sample"
+        }
+      ],
+      "grades": {
+        "sample-chamber-rush": 0,
+        "sample-paper-lantern": 0,
+        "sample-velvet-room": 3,
+        "sample-swing-steps": 2,
+        "sample-dusk-signal": 0
+      }
+    }
+  ]
+}

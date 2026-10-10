@@ -44,6 +44,7 @@
       "bpm": null,
       "recording_id": null,
       "missing_features": [
+        "bpm",
         "vocals",
         "energy"
       ],
@@ -67,6 +68,7 @@
       "bpm": null,
       "recording_id": null,
       "missing_features": [
+        "bpm",
         "vocals",
         "energy"
       ],

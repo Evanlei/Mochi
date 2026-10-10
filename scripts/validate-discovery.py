@@ -37,11 +37,14 @@ async def run(output):
                     try:
                         if provider == "Last.fm":
                             result = await lastfm.tags(track)
+                            pool = await lastfm.top_tracks("piano" if category == "instrumental" else "pop", limit=5)
+                            similar = await lastfm.similar(track, limit=5)
                             row.update(status="ok", tags=list(result.tags), missing_features=["bpm", "vocals", "energy"])
+                            row.update(tag_candidates=len(pool), similar_candidates=len(similar))
                         else:
                             result = await recco.enrich(track)
                             row.update(status="matched" if result.bpm else "missing_or_ambiguous", bpm=result.bpm,
-                                recording_id=result.feature_recording_id, missing_features=["vocals", "energy"])
+                                recording_id=result.feature_recording_id, missing_features=(["bpm"] if result.bpm is None else []) + ["vocals", "energy"])
                     except ProviderError as error:
                         row.update(status="blocked" if provider == "Last.fm" and not settings.lastfm_key else "failed", reason=str(error))
                     row["elapsed_ms"] = round((time.monotonic() - start) * 1000)

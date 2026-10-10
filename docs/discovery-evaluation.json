@@ -1,0 +1,32 @@
+{
+  "source": "fictional_development_fixture",
+  "note": "Author-assigned relevance judgments on fictional descriptions. Acquisition order is an authored stand-in, not measured Last.fm ordering. No live recommendation quality claim.",
+  "cases": [
+    {
+      "prompt": "gentle piano for reading",
+      "method": "lexical",
+      "acquisition_ndcg_at_5": 0.4662,
+      "mochi_ndcg_at_5": 0.9677
+    },
+    {
+      "prompt": "energetic electronic workout",
+      "method": "lexical",
+      "acquisition_ndcg_at_5": 0.4802,
+      "mochi_ndcg_at_5": 1.0
+    },
+    {
+      "prompt": "warm acoustic guitar",
+      "method": "lexical",
+      "acquisition_ndcg_at_5": 0.5792,
+      "mochi_ndcg_at_5": 0.958
+    },
+    {
+      "prompt": "jazz saxophone lounge",
+      "method": "lexical",
+      "acquisition_ndcg_at_5": 0.5389,
+      "mochi_ndcg_at_5": 1.0
+    }
+  ],
+  "mean_acquisition_ndcg_at_5": 0.5161,
+  "mean_mochi_ndcg_at_5": 0.9814
+}
