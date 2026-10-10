@@ -2,9 +2,9 @@
 
 <img src="design/mochi-app-icon.png" alt="Mochi: a sage blob with oval eyes and a tiny smile on warm cream" width="112" height="112">
 
-A native macOS music companion, built with Swift and SwiftUI. A small floating Mochi collects listening requests, while the menu-bar panel controls Spotify playback. Mochi is being developed to turn those requests into personalized recommendations.
+A personal desktop DJ, built with Swift and SwiftUI. Describe a session to floating Mochi; the local Python backend discovers Last.fm candidates and ranks them to your taste, while Spotify handles playback.
 
-The floating companion, listening-request card, local Python backend connection, Spotify authorization, catalog search, selected-track playback, Now Playing display, and basic playback controls are implemented. Recommendation retrieval and ranking are still planned.
+The native companion, live discovery integration, independent ranking, conservative Spotify resolution, partial queue playback, and local taste memory are implemented. Live Last.fm validation still needs an API key; real-account recommendation playback remains to be checked.
 
 ## Current functionality
 
@@ -26,7 +26,9 @@ The floating companion, listening-request card, local Python backend connection,
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now select up to five entries from an authored fictional sample catalog. The backend interprets vocals, energy, and explicit BPM values/ranges, filters requirements, and ranks the remaining entries using the full request. The card expands to show sample matches or asks about conflicts. These sample entries are not real recordings and cannot start playback. Search mode separately finds real Spotify songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
+**Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return up to five canonical recordings. Swift resolves confident Spotify versions and starts the available matches in ranked order. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
+
+See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md). The first release is a private hobby beta; public distribution requires resolving provider permissions and Spotify access limits.
 
 ## Requirements
 
@@ -34,6 +36,7 @@ The floating companion, listening-request card, local Python backend connection,
 - Xcode with the macOS SDK and Swift toolchain. The project has been built with Swift 6.4.
 - Spotify Premium and a registered Spotify developer app for live authentication.
 - Python 3.12 or later and [uv](https://docs.astral.sh/uv/) for the local listening-request backend.
+- A [Last.fm API key](https://www.last.fm/api/account/create) for live discovery, kept only in backend configuration.
 
 Most source editing can be done in VS Code. Xcode provides the native project, build tools, signing, and debugger.
 
@@ -60,7 +63,7 @@ The resulting app is `build/Build/Products/Debug/Mochi.app`. Build output is ign
 
 ## Run the local backend
 
-In a separate VS Code terminal, from the repository root:
+Copy `backend/.env.example` to `backend/.env` from the repository root, then fill in `LASTFM_API_KEY` locally. Keep it out of chat and Git. No key is needed for the explicit fictional demo (`MOCHI_CATALOG_MODE=sample`). In a separate VS Code terminal:
 
 ```bash
 cd backend
@@ -71,7 +74,7 @@ uv run --extra semantic fastapi dev main.py
 
 The preparation command downloads a pinned public model once (about 67 MB of model weights) into an ignored local folder. On subsequent starts, only run `uv run --extra semantic fastapi dev main.py`. Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed. For the deterministic rules alone, use `uv run fastapi dev main.py`; missing model files or packages also fall back to those rules.
 
-Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request. Try **relaxing piano music, no vocals**, **gentle acoustic guitar without lyrics**, or **calm piano without vocals 80–100 BPM**. The card shows a loading indicator, the interpreted preferences, and a scrollable sample list with title, artist, energy, vocals, and known BPM. A request such as **calm and energetic** gets a clarification question. **No vocals 300 BPM** demonstrates empty results without relaxing your requirements. Quick choices still submit their text; a preference that cannot be inferred remains unspecified.
+Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, connect Spotify, click the character, and try **jazz piano**, **indie rock**, or **mellow acoustic guitar**. The expanded card shows source links, available musical features, play buttons and likes/dislikes. Missing musical features stay unknown. Strict requests such as **no vocals** currently return empty live selections rather than guessed results. In fictional demo mode, try **calm piano without vocals 80–100 BPM** to exercise numeric filtering. **Calm and energetic** asks for clarification.
 
 If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
 
@@ -79,7 +82,7 @@ See [the backend walkthrough](docs/backend.md) for the request flow, code roles,
 
 See [request understanding and evaluation](docs/intent-understanding.md) for the rule/model combination and its measured results.
 
-See [sample song selection](docs/song-selection.md) for the catalog, filtering, ranking, BPM behavior, and tradeoffs.
+See [sample song selection](docs/song-selection.md) for the explicitly fictional fixture mode, and [live discovery](docs/music-discovery.md) for the current flow.
 
 ## Connect Spotify
 
@@ -121,14 +124,15 @@ Mochi breathes with a gentle change in body shape, blinks, and glances around, w
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
 - Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
-- Mood submissions show sample matches or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
+- Mood submissions show live matches, a setup/constraint message, or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
+- Use thumbs up/down to save taste feedback. Right-click the reset arrow and choose **Forget taste memory** to delete it. **Play matches** retries matching after connecting Spotify.
 - Click the reset arrow to start a **new listening request**.
 - Press **Escape**, click the close button, or click outside the card to dismiss it. Closing retains your draft and preferences during this app session.
 - Use **Hide Mochi / Show Mochi** in the menu-bar panel. Hiding also closes the card; visibility is remembered after quitting.
 
 The companion stays above ordinary windows and joins desktop Spaces. Its card opens above the character when space permits, below it near the top edge, and stays within the display's usable area. If a remembered display is disconnected, Mochi moves back onto an available display. Spotify controls remain in the menu bar.
 
-Your listening preferences are currently kept in memory and cleared when the app quits. Only the character's position and visibility are saved in local app preferences.
+The visible request summary lasts for the app session. Explicit feedback and recommendation contexts persist in the local backend's SQLite taste store; disposable provider metadata has a separate bounded cache. Character position and visibility stay in local app preferences. This version has one taste profile per local backend.
 
 ## Find and play a song
 
@@ -225,7 +229,17 @@ bash scripts/test-backend.sh --semantic
 
 This requires at least 85% exact agreement on the small authored intent set and improvement over the rules-only baseline. It also verifies four sample-track retrieval smoke cases with outbound sockets blocked; these are acceptance checks, not a general recommendation accuracy measurement. The intent evaluation report and remaining misses are recorded in [the walkthrough](docs/intent-understanding.md).
 
-The native companion checks use a simulated backend by default. With the development server running, `bash scripts/test-companion.sh --live-backend` exercises Return submission through the real backend and confirms the response appears in the card.
+The native companion checks use a simulated backend by default. To run the existing fixture-based `--live`/`--live-backend` bridge checks, start the server with `MOCHI_CATALOG_MODE=sample`; they expect the fictional catalog. Real discovery has separate provider and recording-resolution checks.
+
+## Discovery checks
+
+```bash
+bash scripts/test-discovery.sh
+backend/.venv/bin/python scripts/validate-discovery.py --output docs/provider-validation.json
+backend/.venv/bin/python scripts/evaluate-discovery.py
+```
+
+The native checks use mock responses to verify artist/version/ISRC matching, partial playback, nullable features, cancellation, feedback and reconnect behavior. Provider checks make read-only live requests; Last.fm needs your key. The ranking evaluation defaults to clearly labeled fictional fixtures; [the discovery guide](docs/music-discovery.md) explains how to capture and manually judge real Last.fm candidates. Recorded smoke results are not a broad coverage or recommendation-accuracy claim.
 
 ## Project layout
 
@@ -259,17 +273,17 @@ Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift ty
 
 `MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, request state, and vector drawing of the supplied character. `MochiBackendClient.swift` sends listening text to Python and reads its confirmation. `backend/main.py` defines the health and listening-request routes. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
 
-## Planned recommendation architecture
+## Recommendation architecture
 
 ```text
 Natural-language request
   → intent representation
-  → semantic candidate retrieval
+  → Last.fm discovery + independent text matching
   → personalized ranking
   → Spotify track resolution
   → playback
 ```
 
-Mochi will own retrieval and ranking, rather than asking an LLM to invent a track list. The initial Python/FastAPI connection is implemented; recommendation logic will begin with a transparent heuristic ranking baseline before introducing a learned model. Feedback collection and evaluation will guide later improvements.
+Mochi owns relevance ranking over independent discovery candidates. The current heuristic combines text similarity, explicit likes/dislikes, artist affinity and repetition penalties. A trained ranking model remains a later experiment once enough first-party feedback exists to compare it with this baseline.
 
-Next is the Python backend and its API contract with the native client. Semantic retrieval, personalized ranking, and confidence-based resolution of independently recommended tracks remain planned.
+Next is live source validation with a configured Last.fm key, manual ranking judgments and a real-account playback check. See [SPEC.md](SPEC.md) and [music discovery](docs/music-discovery.md) for implementation boundaries and remaining work.

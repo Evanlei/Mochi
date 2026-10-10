@@ -1,5 +1,7 @@
 # Sample song selection
 
+This walkthrough describes the explicitly fictional development mode (`MOCHI_CATALOG_MODE=sample`). The default live path is documented in [music discovery](music-discovery.md).
+
 Mochi now connects a listening request to a catalog: interpret preferences, filter requirements, compare the full sentence with descriptions, rank, and show up to five candidates in the native card.
 
 This milestone uses 16 **fictional sample tracks**, authored in `backend/data/sample-catalog.json`. Titles, artists, descriptions, and BPM/energy/vocal metadata are illustrative development data. They are not real recordings, measured audio features, or Spotify metadata. The card labels them as fictional, provides no play button, and never sends their IDs to Spotify. The next dataset must be independently licensed and researched before replacement.

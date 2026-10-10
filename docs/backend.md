@@ -1,6 +1,6 @@
 # Local backend walkthrough
 
-Mochi sends listening text from the native card to Python, interprets preferences, and selects entries from a fictional sample catalog. The current backend validates text and detects vocal, energy, and supported numeric tempo preferences before ranking sample entries. It does not choose real Spotify recordings, start music, save requests to a database, or receive Spotify credentials.
+Mochi sends listening text from the native card to Python, interprets preferences, and independently ranks Last.fm candidates. Swift resolves recommendations to Spotify and starts confident matches. The backend stores Mochi feedback/context in SQLite and never receives Spotify credentials. See [the live discovery guide](music-discovery.md) for setup, constraints, persistence and evaluation. The examples below explain the original request boundary and explicit fictional demo mode (`MOCHI_CATALOG_MODE=sample`).
 
 ## What happens when you press Send
 
@@ -57,7 +57,7 @@ Missing, non-text, blank, or overlong prompts receive HTTP 422. Length is measur
 
 `async` and `await` let the model wait for the network without blocking the interface. `throws` lets the client report a failure, which the model handles in `catch`.
 
-`isSending` controls the loading state and disables Send and quick choices. The model also rejects duplicate submissions, including repeated Return presses. Your draft stays available until success; a failed quick choice is copied into the input for retry. Requests time out after ten seconds. Validation, unavailable-server, timeout, server-error, and unexpected-response messages are displayed in the card. Requests are not automatically retried.
+`isSending` controls the loading state and disables Send and quick choices. The model also rejects duplicate submissions, including repeated Return presses. Your draft stays available until success; a failed quick choice is copied into the input for retry. Requests time out after thirty seconds. Validation, unavailable-server, timeout, server-error, and unexpected-response messages are displayed in the card. Requests are not automatically retried.
 
 The reset button cancels the stored `sendTask` and changes a request identifier. A late response from the old request cannot change a fresh conversation. Stopping the companion also cancels pending work. Closing the card merely hides it; a pending request can finish while hidden. Switching to Spotify search keeps the two flows independent.
 
@@ -77,4 +77,4 @@ Python runs separately from the macOS app. Mochi currently does not start or pac
 
 ## Next development step
 
-Replace the fictional development catalog with an appropriately licensed independent music dataset, evaluate retrieval on broader requests, and resolve real candidates to Spotify recordings. Personalization, feedback persistence, and queue playback remain future work. The current session summary is local state; Python receives only the text submitted in each request.
+Live discovery, independent ranking, conservative Spotify resolution, queue playback and first-party taste memory are now implemented. See [music discovery](music-discovery.md) for the current contract and source-validation limits. Next, configure the Last.fm key, manually judge real candidate rankings and verify live account playback. Reliable musical measurements and learned ranking remain future work.
