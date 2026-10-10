@@ -111,6 +111,29 @@ struct DiscoveryChecks {
         precondition(event["event"] as? String == "select" && event["request_id"] as? String == requestID)
         print("PASS: independent live contract, ranked partial playback, first-party feedback without Spotify payloads")
 
+        second["title"] = "Quiet Dawn"
+        let secondID = "0000000000000000000002"
+        SpotifyMockProtocol.server.configure([try response(tracks: [source(), second]),
+            try json(["tracks": ["items": [spotify()]]]),
+            try json(["tracks": ["items": [spotify("Quiet Dawn", id: secondID)]]]),
+            try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
+        model.submit("piano"); try await settle(model)
+        let queue = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[4])!) as! [String: Any]
+        precondition(queue["uris"] as? [String] == ["spotify:track:\(spotifyID)", "spotify:track:\(secondID)"])
+        precondition(model.reply == "Started 2 of 2 matches.")
+        print("PASS: multiple confirmed recordings start in recommendation order")
+
+        SpotifyMockProtocol.server.configure([try response(), SpotifyReply(status: 401),
+            try json(["access_token": "refreshed-access", "token_type": "Bearer", "expires_in": 3600]),
+            try json(["tracks": ["items": [spotify()]]]),
+            try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
+        model.submit("piano"); try await settle(model)
+        let refreshedRequests = SpotifyMockProtocol.server.requests()
+        precondition(refreshedRequests[2].url?.path == "/api/token")
+        precondition(refreshedRequests[3].value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access")
+        precondition(model.reply == "Started 1 of 1 matches.")
+        print("PASS: discovery resolution refreshes a rejected token once before playback")
+
         SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
         model.feedback(track, event: .like); try await settle(model)
         precondition(model.likedTracks.contains(sourceID))

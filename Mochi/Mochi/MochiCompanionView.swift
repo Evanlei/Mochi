@@ -43,7 +43,7 @@ final class MochiRequestModel: ObservableObject {
         self.auth = auth; self.playback = playback
         subscriptions = [auth.$isConnected.removeDuplicates().sink { [weak self] connected in
             guard let self else { return }
-            if !connected { self.reset() }
+            if !connected && self.isConnected { self.reset() }
             self.isConnected = connected
         }, playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy }]
     }

@@ -117,6 +117,7 @@ struct CompanionChecks {
             let action = unsafeBitCast(element.method(for: selector), to: (@convention(c) (NSObject, Selector) -> Bool).self)
             return action(element, selector)
         }
+        try await Task.sleep(for: .milliseconds(150))
         guard let toggle = button("Search songs and artists", in: card.contentView!) else {
             fatalError("Search toggle is not accessible")
         }
@@ -317,6 +318,38 @@ struct CompanionChecks {
         try await Task.sleep(for: .milliseconds(100))
         precondition(companion.request.selection == nil && companion.request.preferences.isEmpty && card.frame.size == MochiCompanionCard.size)
         print("PASS: native sample rows, keyboard submission, expanded placement, search/back retention, empty results and reset")
+
+        if !liveBackend {
+            auth.disconnect()
+            let rows: [[String: Any]] = (0..<5).map { index in
+                ["id": "lastfm-" + String(repeating: String(index), count: 64),
+                 "title": "Development recording \(index + 1)", "artist": "Fixture Artist",
+                 "bpm": NSNull(), "vocals": NSNull(), "energy": NSNull(), "score": 0.8,
+                 "description": "Community tags: piano", "source": "lastfm",
+                 "source_url": "https://www.last.fm/music/Fixture+Artist"]
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["received_prompt": "piano",
+                "selection": ["catalog_kind": "lastfm_live", "method": "lexical",
+                    "request_id": UUID().uuidString, "tracks": rows, "warnings": []]])
+            SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
+            companion.request.submit("piano")
+            while companion.request.isSending { try await Task.sleep(for: .milliseconds(10)) }
+            try await Task.sleep(for: .milliseconds(100))
+            precondition(card.frame.size == MochiCompanionCard.searchSize)
+            precondition(findIdentifier("mochiDiscoverySource", in: card.contentView!) != nil)
+            precondition(button("Like Development recording 1", in: card.contentView!) != nil)
+            precondition(button("Dislike Development recording 1", in: card.contentView!) != nil)
+            precondition(button("Play matches", in: card.contentView!) != nil)
+            if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = card.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("live-selection-card.png"))
+            }
+            companion.request.reset()
+            print("PASS: live discovery attribution, accessible feedback controls, nullable-feature rows and compact card")
+        }
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
