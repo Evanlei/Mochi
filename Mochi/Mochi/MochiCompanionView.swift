@@ -12,25 +12,55 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var reply = "What do you feel like\nlistening to?"
     @Published private(set) var isSending = false
     @Published private(set) var selection: MochiSongSelection?
+    @Published private(set) var resolvedTracks: [String: SpotifySearchTrack] = [:]
+    @Published private(set) var isStarting = false
+    @Published private(set) var isPlaybackBusy = false
+    @Published private(set) var isConnected = false
+    @Published private(set) var feedbackMessage: String?
+    @Published private(set) var feedbackBusy = false
+    @Published private(set) var likedTracks: Set<String> = []
+    @Published private(set) var dislikedTracks: Set<String> = []
 
     private let backend: MochiBackendClient
     private var sendTask: Task<Void, Never>?
     private var requestGeneration = UUID()
+    private let resolver: SpotifySearchClient
+    private weak var auth: SpotifyAuthModel?
+    private weak var playback: SpotifyPlaybackModel?
+    private var subscriptions: [AnyCancellable] = []
+    private var playTask: Task<Void, Never>?
+    private var feedbackTask: Task<Void, Never>?
+    private var retryAfter: Date?
+    private var lastSelectedID: String?
 
-    init(backend: MochiBackendClient? = nil) {
+    init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil) {
         self.backend = backend ?? MochiBackendClient()
+        self.resolver = resolver ?? SpotifySearchClient()
     }
 
-    var canSubmit: Bool { !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    func configure(using auth: SpotifyAuthModel, playback: SpotifyPlaybackModel) {
+        guard self.auth !== auth || self.playback !== playback else { return }
+        self.auth = auth; self.playback = playback
+        subscriptions = [auth.$isConnected.removeDuplicates().sink { [weak self] connected in
+            guard let self else { return }
+            if !connected { self.reset() }
+            self.isConnected = connected
+        }, playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy }]
+    }
+
+    var canSubmit: Bool { !isSending && !isStarting && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var summary: String { preferences.joined(separator: " · ") }
     var hasSelectedTracks: Bool { selection?.tracks.isEmpty == false }
 
     func submit(_ choice: String? = nil) {
         let text = (choice ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        guard !text.isEmpty, !isSending, !isStarting else { return }
         if choice != nil { draft = text }
+        requestGeneration = UUID()
+        feedbackTask?.cancel(); feedbackTask = nil; feedbackBusy = false
         isSending = true
         selection = nil
+        resolvedTracks = [:]; likedTracks = []; dislikedTracks = []; feedbackMessage = nil
         reply = "Sending your request…"
         let generation = requestGeneration
         sendTask = Task { [weak self, backend] in
@@ -38,22 +68,31 @@ final class MochiRequestModel: ObservableObject {
                 let response = try await backend.send(prompt: text)
                 try Task.checkCancellation()
                 guard let self, self.requestGeneration == generation else { return }
-                self.preferences.append(response.receivedPrompt)
+                self.preferences = Array((self.preferences + [response.receivedPrompt]).suffix(20))
                 self.selection = response.selection
                 if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
                 if let question = response.clarification {
                     self.reply = question
                 } else if let selection = response.selection {
                     if selection.tracks.isEmpty {
-                        self.reply = selection.message ?? "No matching sample tracks. Try another request."
+                        self.reply = selection.message ?? "No matching tracks. Try another request."
                     } else {
                         let summary = response.intent?.summary ?? ""
-                        self.reply = summary.isEmpty ? "Sample matches" : "Sample matches\n\(summary)"
+                        let title = selection.catalogKind == .fictionalSample ? "Sample matches" : "Music matches"
+                        self.reply = summary.isEmpty ? title : "\(title)\n\(summary)"
                     }
                 } else if let summary = response.intent?.summary, !summary.isEmpty {
                     self.reply = "Request received.\n\(summary)"
                 } else {
                     self.reply = "Request received.\nRecommendations are coming next."
+                }
+                if response.selection?.catalogKind == .lastfmLive, self.hasSelectedTracks {
+                    if let auth = self.auth, auth.isConnected {
+                        await self.resolveAndPlay(generation: generation, auth: auth)
+                        guard self.requestGeneration == generation else { return }
+                    } else {
+                        self.reply = "Music matches ready.\nConnect Spotify to play them."
+                    }
                 }
                 self.isSending = false
                 self.sendTask = nil
@@ -66,14 +105,174 @@ final class MochiRequestModel: ObservableObject {
         }
     }
 
+    private func check(_ generation: UUID, auth: SpotifyAuthModel, connection: Int) throws {
+        try Task.checkCancellation()
+        guard generation == requestGeneration, auth.isConnected, connection == auth.connectionVersion else { throw CancellationError() }
+    }
+
+    private func resolveAndPlay(generation: UUID, auth: SpotifyAuthModel) async {
+        guard let playback, let selection, selection.catalogKind == .lastfmLive else { return }
+        let connection = auth.connectionVersion
+        var failures: [String] = []
+        if let retryAfter, retryAfter > Date() {
+            reply = "Spotify is limiting requests. Try again later."
+            return
+        }
+        do {
+            var token = try await auth.validAccessToken()
+            try check(generation, auth: auth, connection: connection)
+            let deadline = Date().addingTimeInterval(25)
+            for track in selection.tracks {
+                guard Date() < deadline else { failures.append("Spotify matching reached its time limit."); break }
+                reply = "Finding Spotify matches…"
+                do {
+                    let match: SpotifySearchTrack?
+                    do { match = try await resolver.resolve(track, accessToken: token, timeout: deadline.timeIntervalSinceNow) }
+                    catch SpotifySearchError.unauthorized {
+                        try check(generation, auth: auth, connection: connection)
+                        token = try await auth.validAccessToken(forceRefresh: true)
+                        try check(generation, auth: auth, connection: connection)
+                        guard Date() < deadline else { throw URLError(.timedOut) }
+                        match = try await resolver.resolve(track, accessToken: token, timeout: deadline.timeIntervalSinceNow)
+                    }
+                    try check(generation, auth: auth, connection: connection)
+                    if let match { resolvedTracks[track.id] = match }
+                } catch {
+                    try check(generation, auth: auth, connection: connection)
+                    switch error {
+                    case SpotifySearchError.rateLimited(let seconds), SpotifySearchError.quotaExceeded(let seconds):
+                        retryAfter = Date().addingTimeInterval(seconds)
+                        reply = error.localizedDescription
+                        return
+                    case SpotifySearchError.forbidden, SpotifySearchError.unauthorized:
+                        reply = error.localizedDescription
+                        return
+                    default: failures.append(error.localizedDescription)
+                    }
+                }
+            }
+            try check(generation, auth: auth, connection: connection)
+            var seen = Set<String>()
+            let matched = selection.tracks.filter { source in
+                guard let match = resolvedTracks[source.id] else { return false }
+                return seen.insert(match.uri).inserted
+            }
+            guard !matched.isEmpty else {
+                reply = failures.first ?? "No confident Spotify matches.\nTry another request."
+                return
+            }
+            let uris = matched.compactMap { resolvedTracks[$0.id]?.uri }
+            reply = "Starting your music…"
+            let accepted = await playback.startTracks(uris: uris, using: auth)
+            try check(generation, auth: auth, connection: connection)
+            reply = playback.errorMessage ?? (accepted ? "Started \(matched.count) of \(selection.tracks.count) matches." : "Playback is busy. Try a play button.")
+            if accepted, let first = matched.first {
+                // Record our selection, not imported Spotify history or inferred listens.
+                recordSelection(first, generation: generation)
+            }
+        } catch {
+            guard !(error is CancellationError), generation == requestGeneration else { return }
+            reply = error.localizedDescription
+        }
+    }
+
+    func canPlay(_ track: MochiSelectedTrack) -> Bool {
+        isConnected && !isSending && !isStarting && !isPlaybackBusy && !dislikedTracks.contains(track.id) && resolvedTracks[track.id] != nil
+            && (retryAfter.map { $0 <= Date() } ?? true)
+    }
+
+    var canPlayMatches: Bool {
+        isConnected && !isSending && !isStarting && !isPlaybackBusy
+            && selection?.catalogKind == .lastfmLive && hasSelectedTracks
+            && (retryAfter.map { $0 <= Date() } ?? true)
+    }
+
+    func playMatches() {
+        guard canPlayMatches, let auth else { return }
+        let generation = requestGeneration
+        isStarting = true
+        playTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if generation == self.requestGeneration { self.isStarting = false; self.playTask = nil } }
+            await self.resolveAndPlay(generation: generation, auth: auth)
+        }
+    }
+
+    func play(_ track: MochiSelectedTrack) {
+        guard canPlay(track), let match = resolvedTracks[track.id], let auth, let playback,
+              selection?.tracks.contains(where: { $0.id == track.id }) == true else { return }
+        let generation = requestGeneration
+        let connection = auth.connectionVersion
+        isStarting = true
+        playTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if generation == self.requestGeneration { self.isStarting = false; self.playTask = nil } }
+            let accepted = await playback.startTrack(uri: match.uri, using: auth)
+            guard generation == self.requestGeneration, auth.isConnected, connection == auth.connectionVersion else { return }
+            self.reply = playback.errorMessage ?? (accepted ? "Playing \(track.title)." : "Playback is busy. Try again.")
+            if accepted { self.recordSelection(track, generation: generation) }
+        }
+    }
+
+    private func recordSelection(_ track: MochiSelectedTrack, generation: UUID) {
+        guard generation == requestGeneration else { return }
+        let event: MochiBackendClient.FeedbackEvent = lastSelectedID == track.id ? .replay : .select
+        lastSelectedID = track.id
+        feedback(track, event: event)
+    }
+
+    func feedback(_ track: MochiSelectedTrack, event: MochiBackendClient.FeedbackEvent) {
+        guard !feedbackBusy, let selection, selection.catalogKind == .lastfmLive,
+              let requestID = selection.requestID, selection.tracks.contains(where: { $0.id == track.id }) else { return }
+        let generation = requestGeneration
+        feedbackBusy = true; feedbackMessage = nil
+        feedbackTask = Task { [weak self, backend] in
+            guard let self else { return }
+            defer { if generation == self.requestGeneration { self.feedbackBusy = false; self.feedbackTask = nil } }
+            do {
+                try await backend.feedback(requestID: requestID, trackID: track.id, event: event)
+                guard generation == self.requestGeneration, !Task.isCancelled else { return }
+                if event == .like { self.likedTracks.insert(track.id); self.dislikedTracks.remove(track.id) }
+                if event == .dislike { self.dislikedTracks.insert(track.id); self.likedTracks.remove(track.id) }
+                self.feedbackMessage = "Taste saved. Future requests will use it."
+            } catch {
+                guard generation == self.requestGeneration, !Task.isCancelled else { return }
+                self.feedbackMessage = "Couldn't save taste. Try again."
+            }
+        }
+    }
+
+    func clearTaste() {
+        guard !feedbackBusy, !isSending, !isStarting else { return }
+        let generation = requestGeneration
+        feedbackBusy = true
+        feedbackTask = Task { [weak self, backend] in
+            guard let self else { return }
+            defer { if generation == self.requestGeneration { self.feedbackBusy = false; self.feedbackTask = nil } }
+            do {
+                try await backend.clearTaste()
+                guard generation == self.requestGeneration, !Task.isCancelled else { return }
+                self.likedTracks = []; self.dislikedTracks = []; self.lastSelectedID = nil
+                self.feedbackMessage = "Taste memory cleared."
+            } catch {
+                guard generation == self.requestGeneration, !Task.isCancelled else { return }
+                self.feedbackMessage = "Couldn't clear taste. Try again."
+            }
+        }
+    }
+
     func reset() {
         requestGeneration = UUID()
         sendTask?.cancel()
+        playTask?.cancel(); feedbackTask?.cancel()
+        playTask = nil; feedbackTask = nil
         sendTask = nil
         isSending = false
         draft = ""
         preferences = []
         selection = nil
+        resolvedTracks = [:]; likedTracks = []; dislikedTracks = []
+        isStarting = false; feedbackBusy = false; feedbackMessage = nil
         reply = "What do you feel like\nlistening to?"
     }
 }
@@ -107,6 +306,7 @@ struct MochiCompanionCard: View {
                 .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                 .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                 .accessibilityIdentifier("mochiSearchToggle")
+                .disabled(request.isSending || request.isStarting)
                 if request.isSearchPresented ? !search.query.isEmpty : (!request.preferences.isEmpty || request.isSending) {
                     Button {
                         if request.isSearchPresented { search.reset() } else { request.reset() }
@@ -118,6 +318,7 @@ struct MochiCompanionCard: View {
                     .help(request.isSearchPresented ? "Clear search" : "New listening request")
                     .accessibilityLabel(request.isSearchPresented ? "Clear search" : "New listening request")
                     .disabled(request.isSearchPresented && search.isStarting)
+                    .contextMenu { Button("Forget taste memory") { request.clearTaste() }.disabled(request.feedbackBusy || request.isSending || request.isStarting) }
                 }
                 Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
                     .help("Close Mochi")
@@ -221,25 +422,56 @@ struct MochiCompanionCard: View {
 
     private var selectionContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Fictional sample tracks")
-                .font(.system(size: 10, weight: .medium)).foregroundStyle(Color.mochiMuted)
-                .accessibilityIdentifier("mochiSampleCatalog")
+            if request.selection?.catalogKind == .fictionalSample {
+                Text("Fictional sample tracks")
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(Color.mochiMuted)
+                    .accessibilityIdentifier("mochiSampleCatalog")
+            } else {
+                HStack {
+                    Link("Discovery: Last.fm", destination: URL(string: "https://www.last.fm")!)
+                        .foregroundStyle(Color.mochiMuted)
+                        .accessibilityIdentifier("mochiDiscoverySource")
+                        .help(request.selection?.warnings?.joined(separator: "\n") ?? "Independently ranked by Mochi")
+                    Spacer()
+                    Button("Play matches") { request.playMatches() }
+                        .buttonStyle(.plain).disabled(!request.canPlayMatches)
+                }.font(.system(size: 10))
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 5) {
                     ForEach(request.selection?.tracks ?? []) { track in
-                        VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                          VStack(alignment: .leading, spacing: 2) {
                             Text(track.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
                             Text(track.artist).font(.system(size: 10)).lineLimit(1)
                             Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
+                          }.frame(maxWidth: .infinity, alignment: .leading)
+                          if request.selection?.catalogKind == .lastfmLive {
+                            Button { request.play(track) } label: { Image(systemName: "play.fill") }
+                                .disabled(!request.canPlay(track)).accessibilityLabel("Play \(track.title)")
+                            VStack(spacing: 7) {
+                                Button { request.feedback(track, event: .like) } label: { Image(systemName: request.likedTracks.contains(track.id) ? "hand.thumbsup.fill" : "hand.thumbsup") }
+                                    .accessibilityLabel("Like \(track.title)")
+                                Button { request.feedback(track, event: .dislike) } label: { Image(systemName: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown") }
+                                    .accessibilityLabel("Dislike \(track.title)")
+                            }.disabled(request.feedbackBusy || request.isSending || request.isStarting)
+                            if let url = track.lastfmURL {
+                                Link(destination: url) { Image(systemName: "arrow.up.right") }.accessibilityLabel("\(track.title) on Last.fm")
+                            }
+                          }
                         }
+                        .buttonStyle(.plain).font(.system(size: 10))
                         .frame(maxWidth: .infinity, alignment: .leading).padding(7)
                         .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
                         .help("\(track.title)\n\(track.artist)\n\(track.description)")
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: request.selection?.catalogKind == .lastfmLive ? .contain : .combine)
                         .accessibilityIdentifier("mochiSelectedTrack-\(track.id)")
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let message = request.feedbackMessage {
+                Text(message).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(2)
+            }
         }.frame(maxHeight: .infinity)
     }
 

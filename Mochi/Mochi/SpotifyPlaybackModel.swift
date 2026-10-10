@@ -63,6 +63,10 @@ final class SpotifyPlaybackModel: ObservableObject {
     /// Shares the same busy state as menu controls so player commands cannot overlap.
     /// True means Spotify accepted the track; a failed follow-up refresh is reported separately.
     func startTrack(uri: String, using auth: SpotifyAuthModel) async -> Bool {
+        await startTracks(uris: [uri], using: auth)
+    }
+
+    func startTracks(uris: [String], using auth: SpotifyAuthModel) async -> Bool {
         let version = requestVersion
         let connectionVersion = auth.connectionVersion
         return await changePlayback(using: auth) { token in
@@ -72,7 +76,7 @@ final class SpotifyPlaybackModel: ObservableObject {
             guard version == self.requestVersion, auth.isConnected,
                   connectionVersion == auth.connectionVersion else { throw CancellationError() }
             guard current?.device?.isRestricted != true else { throw SpotifyPlaybackError.forbidden }
-            try await self.client.startTrack(uri: uri, accessToken: token, deviceID: current?.device?.id)
+            try await self.client.startTracks(uris: uris, accessToken: token, deviceID: current?.device?.id)
         }
     }
 

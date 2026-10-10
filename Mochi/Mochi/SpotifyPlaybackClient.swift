@@ -30,12 +30,18 @@ final class SpotifyPlaybackClient {
     }
 
     func startTrack(uri: String, accessToken: String, deviceID: String?) async throws {
-        let id = uri.dropFirst("spotify:track:".count)
-        guard uri.hasPrefix("spotify:track:"), id.count == 22,
-              id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }) else {
+        try await startTracks(uris: [uri], accessToken: accessToken, deviceID: deviceID)
+    }
+
+    func startTracks(uris: [String], accessToken: String, deviceID: String?) async throws {
+        guard !uris.isEmpty, uris.count <= 5, Set(uris).count == uris.count, uris.allSatisfy({ uri in
+            let id = uri.dropFirst("spotify:track:".count)
+            return uri.hasPrefix("spotify:track:") && id.count == 22 &&
+                id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) })
+        }) else {
             throw SpotifyPlaybackError.invalidTrack
         }
-        let body = try JSONSerialization.data(withJSONObject: ["uris": [uri], "position_ms": 0])
+        let body = try JSONSerialization.data(withJSONObject: ["uris": uris, "position_ms": 0])
         _ = try await request(path: "/play", method: "PUT", accessToken: accessToken,
                               deviceID: deviceID, body: body)
     }

@@ -25,6 +25,7 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         companion.search.configure(using: spotify, playback: playback)
+        companion.request.configure(using: spotify, playback: playback)
         companion.observeMusicPlayback(
             playback.$state.combineLatest(playback.$isStale)
                 .map { state, stale in state?.isPlaying == true && !stale }

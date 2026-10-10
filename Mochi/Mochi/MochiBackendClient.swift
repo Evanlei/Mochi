@@ -41,16 +41,19 @@ struct MochiListeningIntent: Decodable {
 }
 
 struct MochiSongSelection: Decodable {
-    enum CatalogKind: String, Decodable { case fictionalSample = "fictional_sample" }
+    enum CatalogKind: String, Decodable { case fictionalSample = "fictional_sample", lastfmLive = "lastfm_live" }
     enum Method: String, Decodable { case semantic, lexical, none }
     let catalogKind: CatalogKind
     let method: Method
     let tracks: [MochiSelectedTrack]
     let message: String?
+    let requestID: String?
+    let warnings: [String]?
 
     enum CodingKeys: String, CodingKey {
         case catalogKind = "catalog_kind"
         case method, tracks, message
+        case requestID = "request_id", warnings
     }
 }
 
@@ -59,15 +62,33 @@ struct MochiSelectedTrack: Decodable, Identifiable {
     let title: String
     let artist: String
     let bpm: Double?
-    let vocals: Bool
-    let energy: MochiListeningIntent.Energy
+    let vocals: Bool?
+    let energy: MochiListeningIntent.Energy?
     let description: String
     let score: Double
+    let source: String?
+    let sourceURL: String?
+    let isrc: String?
+    let durationMS: Int?
+    let featureSpotifyID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, artist, bpm, vocals, energy, description, score, source, isrc
+        case sourceURL = "source_url", durationMS = "duration_ms", featureSpotifyID = "feature_spotify_id"
+    }
+
+    var lastfmURL: URL? {
+        guard let sourceURL, let url = URL(string: sourceURL), url.scheme == "https",
+              ["www.last.fm", "last.fm"].contains(url.host ?? "") else { return nil }
+        return url
+    }
 
     var details: String {
-        var parts = [energy == .low ? "Low energy" : "High energy", vocals ? "Vocals" : "Instrumental"]
+        var parts: [String] = []
+        if let energy { parts.append(energy == .low ? "Low energy" : "High energy") }
+        if let vocals { parts.append(vocals ? "Vocals" : "Instrumental") }
         if let bpm { parts.append("\(String(format: "%g", bpm)) BPM") }
-        return parts.joined(separator: " · ")
+        return parts.isEmpty ? "Musical features unavailable" : parts.joined(separator: " · ")
     }
 }
 
@@ -76,8 +97,8 @@ struct MochiBackendClient {
 
     init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 10
-        configuration.timeoutIntervalForResource = 10
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 30
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         self.session = session ?? URLSession(configuration: configuration,
@@ -97,7 +118,7 @@ struct MochiBackendClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 10
+        request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
             MochiListeningRequest(prompt: text)
@@ -133,7 +154,40 @@ struct MochiBackendClient {
                 throw MochiBackendError.invalidResponse
             }
         }
+        if let selection = result.selection, selection.catalogKind == .lastfmLive, !selection.tracks.isEmpty {
+            guard let requestID = selection.requestID, UUID(uuidString: requestID) != nil,
+                  selection.tracks.allSatisfy({ $0.source == "lastfm" && $0.id.range(of: "^lastfm-[0-9a-f]{64}$", options: .regularExpression) != nil &&
+                      ($0.featureSpotifyID.map { $0.range(of: "^[A-Za-z0-9]{22}$", options: .regularExpression) != nil } ?? true) }) else {
+                throw MochiBackendError.invalidResponse
+            }
+        }
         return result
+    }
+
+    enum FeedbackEvent: String { case like, dislike, select, replay }
+
+    func feedback(requestID: String, trackID: String, event: FeedbackEvent, eventID: UUID = UUID()) async throws {
+        guard UUID(uuidString: requestID) != nil else { throw MochiBackendError.invalidResponse }
+        let data = try JSONSerialization.data(withJSONObject: ["event_id": eventID.uuidString, "request_id": requestID,
+            "track_id": trackID, "event": event.rawValue])
+        try await write(path: "feedback", method: "POST", body: data)
+    }
+
+    func clearTaste() async throws { try await write(path: "taste", method: "DELETE", body: nil) }
+
+    private func write(path: String, method: String, body: Data?) async throws {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/\(path)")!)
+        request.httpMethod = method
+        request.httpBody = body
+        request.timeoutInterval = 10
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let (data, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard let response = response as? HTTPURLResponse else { throw MochiBackendError.invalidResponse }
+        guard response.statusCode == 200 else { throw MochiBackendError.server(response.statusCode) }
+        guard (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["status"] == "ok" else {
+            throw MochiBackendError.invalidResponse
+        }
     }
 }
 

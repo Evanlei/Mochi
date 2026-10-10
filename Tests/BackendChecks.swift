@@ -138,7 +138,7 @@ struct BackendChecks {
             precondition(result.receivedPrompt == "Live piano check 🎵")
             let selection = try await MochiBackendClient().send(prompt: "calm piano without vocals 80-100 BPM")
             precondition(selection.selection?.tracks.isEmpty == false)
-            precondition(selection.selection!.tracks.allSatisfy { !$0.vocals && $0.energy == .low && (80...100).contains($0.bpm ?? 0) })
+            precondition(selection.selection!.tracks.allSatisfy { $0.vocals == false && $0.energy == .low && (80...100).contains($0.bpm ?? 0) })
             print("PASS: actual Swift URLSession → local FastAPI → Swift response")
         }
     }
