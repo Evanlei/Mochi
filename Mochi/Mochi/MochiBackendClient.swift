@@ -8,10 +8,11 @@ struct MochiListeningResponse: Decodable {
     let receivedPrompt: String
     let intent: MochiListeningIntent?
     let clarification: String?
+    let selection: MochiSongSelection?
 
     enum CodingKeys: String, CodingKey {
         case receivedPrompt = "received_prompt"
-        case intent, clarification
+        case intent, clarification, selection
     }
 }
 
@@ -19,11 +20,53 @@ struct MochiListeningIntent: Decodable {
     enum Energy: String, Decodable { case low, high }
     let vocals: Bool?
     let energy: Energy?
+    let bpmMin: Double?
+    let bpmMax: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case vocals, energy
+        case bpmMin = "bpm_min", bpmMax = "bpm_max"
+    }
 
     var summary: String {
         var parts: [String] = []
         if let energy { parts.append(energy == .low ? "Low energy" : "High energy") }
         if let vocals { parts.append(vocals ? "With vocals" : "Instrumental") }
+        if let lower = bpmMin, let upper = bpmMax {
+            let tempo = lower == upper ? String(format: "%g", lower) : "\(String(format: "%g", lower))–\(String(format: "%g", upper))"
+            parts.append("\(tempo) BPM")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct MochiSongSelection: Decodable {
+    enum CatalogKind: String, Decodable { case fictionalSample = "fictional_sample" }
+    enum Method: String, Decodable { case semantic, lexical, none }
+    let catalogKind: CatalogKind
+    let method: Method
+    let tracks: [MochiSelectedTrack]
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case catalogKind = "catalog_kind"
+        case method, tracks, message
+    }
+}
+
+struct MochiSelectedTrack: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let artist: String
+    let bpm: Double?
+    let vocals: Bool
+    let energy: MochiListeningIntent.Energy
+    let description: String
+    let score: Double
+
+    var details: String {
+        var parts = [energy == .low ? "Low energy" : "High energy", vocals ? "Vocals" : "Instrumental"]
+        if let bpm { parts.append("\(String(format: "%g", bpm)) BPM") }
         return parts.joined(separator: " · ")
     }
 }
@@ -83,6 +126,13 @@ struct MochiBackendClient {
         }
         guard let result = try? JSONDecoder().decode(MochiListeningResponse.self, from: data),
               result.receivedPrompt == text else { throw MochiBackendError.invalidResponse }
+        if let tracks = result.selection?.tracks {
+            guard tracks.count <= 5, Set(tracks.map(\.id)).count == tracks.count,
+                  tracks.allSatisfy({ !$0.id.isEmpty && !$0.title.isEmpty && !$0.artist.isEmpty && $0.score.isFinite &&
+                      ($0.bpm.map { $0.isFinite && (20...400).contains($0) } ?? true) }) else {
+                throw MochiBackendError.invalidResponse
+            }
+        }
         return result
     }
 }

@@ -9,11 +9,14 @@ struct BackendChecks {
         let client = MochiBackendClient(session: URLSession(configuration: configuration))
         let text = "夜の piano 🎵"
         let data = try JSONSerialization.data(withJSONObject: ["received_prompt": text,
-            "intent": ["vocals": false, "energy": "low"], "clarification": NSNull()] as [String: Any])
+            "intent": ["vocals": false, "energy": "low"], "clarification": NSNull(),
+            "selection": mochiSampleSelectionPayload()] as [String: Any])
         SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
         let result = try await client.send(prompt: "  \(text)  ")
         precondition(result.receivedPrompt == text)
         precondition(result.intent?.summary == "Low energy · Instrumental" && result.clarification == nil)
+        precondition(result.selection?.tracks.count == 5 && result.selection?.catalogKind == .fictionalSample)
+        precondition(result.selection?.tracks.first?.details == "Low energy · Instrumental · 72 BPM")
         let sent = SpotifyMockProtocol.server.requests()[0]
         precondition(sent.url?.absoluteString == "http://127.0.0.1:8000/listening-request")
         precondition(sent.httpMethod == "POST" && sent.value(forHTTPHeaderField: "Content-Type") == "application/json")
@@ -43,6 +46,15 @@ struct BackendChecks {
             precondition(SpotifyMockProtocol.server.requests().count == 1, "Unexpected automatic retry")
         }
         print("PASS: input limits, unavailable server, timeout, HTTP failures and malformed/mismatched replies")
+
+        var invalidSelection = mochiSampleSelectionPayload()
+        var duplicateTracks = invalidSelection["tracks"] as! [[String: Any]]
+        duplicateTracks[1]["id"] = duplicateTracks[0]["id"]
+        invalidSelection["tracks"] = duplicateTracks
+        let invalidData = try JSONSerialization.data(withJSONObject: ["received_prompt": "piano", "selection": invalidSelection])
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: invalidData)])
+        do { _ = try await client.send(prompt: "piano"); fatalError("Duplicate sample IDs accepted") }
+        catch MochiBackendError.invalidResponse {}
 
         func waitFor(_ predicate: () -> Bool) async throws {
             let deadline = Date().addingTimeInterval(3)
@@ -98,9 +110,35 @@ struct BackendChecks {
         precondition(model.reply == "What energy level would you like?" && model.canSubmit == false)
         print("PASS: understood preferences and clarification shown in the compact card model")
 
+        let selectionData = try JSONSerialization.data(withJSONObject: ["received_prompt": "calm piano 80-100 BPM",
+            "intent": ["vocals": false, "energy": "low", "bpm_min": 80, "bpm_max": 100],
+            "selection": mochiSampleSelectionPayload()] as [String: Any])
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: selectionData)])
+        model.submit("calm piano 80-100 BPM")
+        try await waitFor { !model.isSending }
+        precondition(model.hasSelectedTracks && model.selection?.tracks.count == 5)
+        precondition(model.reply.contains("Sample matches") && model.reply.contains("80–100 BPM"))
+        SpotifyMockProtocol.server.configure([SpotifyReply(error: .cannotConnectToHost)])
+        model.submit("next request")
+        precondition(model.selection == nil, "Old results shown for a new request")
+        try await waitFor { !model.isSending }
+        precondition(!model.hasSelectedTracks && model.draft == "next request")
+        let empty = try JSONSerialization.data(withJSONObject: ["received_prompt": "next request", "selection": [
+            "catalog_kind": "fictional_sample", "method": "none", "tracks": [], "message": "No sample tracks meet those requirements."]])
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: empty)])
+        model.submit()
+        try await waitFor { !model.isSending }
+        precondition(!model.hasSelectedTracks && model.reply.contains("No sample tracks"))
+        model.reset()
+        precondition(model.selection == nil)
+        print("PASS: decoded sample catalog, BPM labels, result retention/reset, empty results and failure cleanup")
+
         if CommandLine.arguments.contains("--live") {
             let result = try await MochiBackendClient().send(prompt: "  Live piano check 🎵  ")
             precondition(result.receivedPrompt == "Live piano check 🎵")
+            let selection = try await MochiBackendClient().send(prompt: "calm piano without vocals 80-100 BPM")
+            precondition(selection.selection?.tracks.isEmpty == false)
+            precondition(selection.selection!.tracks.allSatisfy { !$0.vocals && $0.energy == .low && (80...100).contains($0.bpm ?? 0) })
             print("PASS: actual Swift URLSession → local FastAPI → Swift response")
         }
     }

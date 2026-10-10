@@ -45,7 +45,8 @@ class CatalogChecks(unittest.TestCase):
                 intent = interpret_request(prompt, use_semantic=False)
                 self.assertEqual((intent.bpm_min, intent.bpm_max), expected)
                 self.assertIsNone(intent.clarification)
-        for prompt in ("0 BPM", "500 BPM", "110-80 BPM", "90 BPM and 120 BPM", "no 90 BPM", "under 100 BPM", "some BPM"):
+        for prompt in ("0 BPM", "-90 BPM", "500 BPM", "110-80 BPM", "90 BPM and 120 BPM", "no 90 BPM",
+                       "under 100 BPM", "roughly 90 BPM", "less than or equal to 100 BPM", "80-100-120 BPM", "some BPM"):
             with self.subTest(prompt=prompt):
                 intent = interpret_request(prompt, use_semantic=False)
                 self.assertIsNotNone(intent.clarification)
@@ -122,6 +123,15 @@ class SelectionChecks(unittest.TestCase):
             results = list(pool.map(lambda prompt: selector.select(prompt, IntentResult(), encoder=encoder), prompts))
         self.assertEqual(encoder.catalog_calls, 1)
         self.assertEqual([result.tracks[0].id for result in results], [f"sample-{prompt}" for prompt in prompts])
+
+    def test_weak_semantic_match_returns_empty_instead_of_filling_results(self):
+        class Encoder:
+            def embed_tracks(self, texts): return [[1, 0]]
+            def embed_query(self, text): return [0, 1]
+        result = SongSelector([track("piano", "piano")]).select("unrelated text", IntentResult(), encoder=Encoder())
+        self.assertEqual(result.method, "semantic")
+        self.assertEqual(result.tracks, [])
+        self.assertIn("No close matches", result.message)
 
 
 @unittest.skipUnless(SEMANTIC, "Use --semantic for the prepared local model")

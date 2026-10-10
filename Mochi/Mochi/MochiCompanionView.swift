@@ -11,6 +11,7 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var preferences: [String] = []
     @Published private(set) var reply = "What do you feel like\nlistening to?"
     @Published private(set) var isSending = false
+    @Published private(set) var selection: MochiSongSelection?
 
     private let backend: MochiBackendClient
     private var sendTask: Task<Void, Never>?
@@ -22,12 +23,14 @@ final class MochiRequestModel: ObservableObject {
 
     var canSubmit: Bool { !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var summary: String { preferences.joined(separator: " · ") }
+    var hasSelectedTracks: Bool { selection?.tracks.isEmpty == false }
 
     func submit(_ choice: String? = nil) {
         let text = (choice ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending else { return }
         if choice != nil { draft = text }
         isSending = true
+        selection = nil
         reply = "Sending your request…"
         let generation = requestGeneration
         sendTask = Task { [weak self, backend] in
@@ -36,9 +39,17 @@ final class MochiRequestModel: ObservableObject {
                 try Task.checkCancellation()
                 guard let self, self.requestGeneration == generation else { return }
                 self.preferences.append(response.receivedPrompt)
+                self.selection = response.selection
                 if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
                 if let question = response.clarification {
                     self.reply = question
+                } else if let selection = response.selection {
+                    if selection.tracks.isEmpty {
+                        self.reply = selection.message ?? "No matching sample tracks. Try another request."
+                    } else {
+                        let summary = response.intent?.summary ?? ""
+                        self.reply = summary.isEmpty ? "Sample matches" : "Sample matches\n\(summary)"
+                    }
                 } else if let summary = response.intent?.summary, !summary.isEmpty {
                     self.reply = "Request received.\n\(summary)"
                 } else {
@@ -62,6 +73,7 @@ final class MochiRequestModel: ObservableObject {
         isSending = false
         draft = ""
         preferences = []
+        selection = nil
         reply = "What do you feel like\nlistening to?"
     }
 }
@@ -71,6 +83,7 @@ final class MochiRequestModel: ObservableObject {
 struct MochiCompanionCard: View {
     static let size = CGSize(width: 300, height: 180)
     static let searchSize = CGSize(width: 300, height: 340)
+    var cardSize: CGSize { request.isSearchPresented || request.hasSelectedTracks ? Self.searchSize : Self.size }
     @ObservedObject var request: MochiRequestModel
     @ObservedObject var search: SpotifySearchModel
     var onClose: () -> Void
@@ -115,6 +128,8 @@ struct MochiCompanionCard: View {
 
             if request.isSearchPresented {
                 searchContent
+            } else if request.hasSelectedTracks {
+                selectionContent
             } else if request.preferences.isEmpty {
                 HStack(spacing: 6) {
                     choice("Focus")
@@ -178,7 +193,7 @@ struct MochiCompanionCard: View {
             .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
         }
         .padding(14)
-        .frame(width: Self.size.width, height: request.isSearchPresented ? Self.searchSize.height : Self.size.height)
+        .frame(width: cardSize.width, height: cardSize.height)
         .foregroundStyle(Color.mochiInk)
         .background {
             if reduceTransparency {
@@ -202,6 +217,30 @@ struct MochiCompanionCard: View {
 
     private func submit() {
         if request.isSearchPresented { search.search() } else { request.submit() }
+    }
+
+    private var selectionContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Fictional sample tracks")
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(Color.mochiMuted)
+                .accessibilityIdentifier("mochiSampleCatalog")
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 5) {
+                    ForEach(request.selection?.tracks ?? []) { track in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                            Text(track.artist).font(.system(size: 10)).lineLimit(1)
+                            Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(7)
+                        .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        .help("\(track.title)\n\(track.artist)\n\(track.description)")
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("mochiSelectedTrack-\(track.id)")
+                    }
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.frame(maxHeight: .infinity)
     }
 
     private var searchContent: some View {

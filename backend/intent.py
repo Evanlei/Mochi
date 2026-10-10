@@ -46,7 +46,7 @@ def _tempo_preference(text):
     for match, lower, upper in matches:
         before = text[max(0, match.start() - 30):match.start()]
         if (not 20 <= lower <= upper <= 400 or _negated(text, match.start()) or
-            re.search(r"(?:under|over|below|above|around|about|at least|at most|less than|more than)\s*$", before)):
+            re.search(r"(?:under|over|below|above|around|about|approximately|roughly|at least|at most|faster than|slower than|(?:less|more) than(?: or equal to)?|[-~])\s*$", before)):
             return None, None, question
     lower, upper = max(item[1] for item in matches), min(item[2] for item in matches)
     return (lower, upper, None) if lower <= upper else (None, None, question)

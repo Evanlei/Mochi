@@ -79,3 +79,16 @@ func spotifyRequestBody(_ request: URLRequest) -> Data? {
     }
     return data
 }
+
+// Fictional sample rows mirror the new backend contract without contacting Spotify.
+func mochiSampleSelectionPayload() -> [String: Any] {
+    let entries = [("quiet-window", "Quiet Window", 72), ("paper-lantern", "Paper Lantern", 90),
+                   ("moonlit-keys", "Moonlit Keys", 84), ("velvet-room", "Velvet Room", 88),
+                   ("dusk-signal", "Dusk Signal", 80)]
+    let tracks = entries.enumerated().map { index, entry -> [String: Any] in
+        ["id": "sample-\(entry.0)", "title": entry.1, "artist": "Mochi Sample Studio", "bpm": entry.2,
+         "vocals": false, "energy": "low", "description": "A fictional gentle instrumental example.",
+         "score": 0.8 - Double(index) * 0.02]
+    }
+    return ["catalog_kind": "fictional_sample", "method": "semantic", "tracks": tracks, "message": NSNull()]
+}

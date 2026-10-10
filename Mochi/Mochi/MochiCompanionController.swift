@@ -69,7 +69,7 @@ final class MochiCompanionController: ObservableObject {
     private var cardSizeSubscription: AnyCancellable?
     private var isMusicPlaying = false
     private let mascotSize = NSSize(width: 108, height: 100)
-    private var cardSize: CGSize { request.isSearchPresented ? MochiCompanionCard.searchSize : MochiCompanionCard.size }
+    private var cardSize: CGSize { request.isSearchPresented || request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size }
 
     init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil, request: MochiRequestModel? = nil) {
         self.defaults = defaults
@@ -101,7 +101,9 @@ final class MochiCompanionController: ObservableObject {
         cardPanel = card
         // @Published emits before assigning the property. Resize on the next run-loop turn
         // so a synchronous hosting-view layout cannot consume the old mode and text binding.
-        cardSizeSubscription = request.$isSearchPresented.dropFirst().receive(on: RunLoop.main).sink { [weak self] expanded in
+        cardSizeSubscription = request.$isSearchPresented.combineLatest(request.$selection)
+            .map { searching, selection in searching || selection?.tracks.isEmpty == false }
+            .removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] expanded in
             self?.cardPanel?.setContentSize(expanded ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
             self?.positionCard()
         }

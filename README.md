@@ -26,7 +26,7 @@ The floating companion, listening-request card, local Python backend connection,
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now reach the local Python backend, which detects vocal and energy preferences using explicit constraints and optional local semantic matching. The card shows the understood preferences or asks about conflicts. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
+**Mood requests now select up to five entries from an authored fictional sample catalog. The backend interprets vocals, energy, and explicit BPM values/ranges, filters requirements, and ranks the remaining entries using the full request. The card expands to show sample matches or asks about conflicts. These sample entries are not real recordings and cannot start playback. Search mode separately finds real Spotify songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
 
 ## Requirements
 
@@ -71,13 +71,15 @@ uv run --extra semantic fastapi dev main.py
 
 The preparation command downloads a pinned public model once (about 67 MB of model weights) into an ignored local folder. On subsequent starts, only run `uv run --extra semantic fastapi dev main.py`. Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed. For the deterministic rules alone, use `uv run fastapi dev main.py`; missing model files or packages also fall back to those rules.
 
-Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request. Try **calm music without vocals** or **help me unwind after a long day, no vocals**. The card shows a loading indicator and then **Low energy · Instrumental**. A request such as **calm and energetic** gets a clarification question. The summary contains the text Python confirmed. Quick choices still submit their text; a preference that cannot be inferred remains unspecified.
+Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request. Try **relaxing piano music, no vocals**, **gentle acoustic guitar without lyrics**, or **calm piano without vocals 80–100 BPM**. The card shows a loading indicator, the interpreted preferences, and a scrollable sample list with title, artist, energy, vocals, and known BPM. A request such as **calm and energetic** gets a clarification question. **No vocals 300 BPM** demonstrates empty results without relaxing your requirements. Quick choices still submit their text; a preference that cannot be inferred remains unspecified.
 
 If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
 
 See [the backend walkthrough](docs/backend.md) for the request flow, code roles, API contract, and current limits.
 
 See [request understanding and evaluation](docs/intent-understanding.md) for the rule/model combination and its measured results.
+
+See [sample song selection](docs/song-selection.md) for the catalog, filtering, ranking, BPM behavior, and tradeoffs.
 
 ## Connect Spotify
 
@@ -114,12 +116,12 @@ The playback client gets its access token from the existing authentication model
 
 ## Floating Mochi
 
-Mochi breathes with a gentle change in body shape, blinks, and glances around, with no ground shadow. About every 26 seconds while idle, it crouches, jumps with smiling eyes, and makes a squishy landing. Hovering or dragging restarts that idle wait. Hovering triggers an exaggerated cartoon squash-and-stretch greeting, smiling eyes, and a hand wave. Holding or dragging stretches its body with a surprised face; releasing it triggers a soft settling bounce. While Spotify’s last known playback state is playing, Mochi dances with big side-to-side leans, rhythmic squash-and-stretch bounces, alternating hand swings, and happy eyes instead of idle jumps. The dance uses its own steady rhythm. This follows the existing control/Refresh results, including while the menu is closed; it does not poll Spotify in the background. After 90 seconds without interaction, Mochi gradually falls asleep with closed eyes, slower breathing, and floating z’s; the dance and idle jumps stop. Hovering wakes it with a stretch and blink before its greeting. Mochi stays awake while its card is open. Animation pauses when hidden; macOS Reduce Motion uses static awake/asleep poses and static z’s. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background.
+Mochi breathes with a gentle change in body shape, blinks, and glances around, with no ground shadow. About every 26 seconds while idle, it crouches, jumps with smiling eyes, and makes a squishy landing. Hovering or dragging restarts that idle wait. Hovering triggers an exaggerated cartoon squash-and-stretch greeting, smiling eyes, and a hand wave. Holding or dragging stretches its body with a surprised face; releasing it triggers a soft settling bounce. While Spotify’s last known playback state is playing, Mochi dances with big side-to-side leans, rhythmic squash-and-stretch bounces, alternating hand swings, and happy eyes instead of idle jumps. The dance uses its own steady rhythm. This follows the existing control/Refresh results, including while the menu is closed; it does not poll Spotify in the background. After 90 seconds without interaction, Mochi gradually falls asleep with closed eyes, slower breathing, and floating z’s; the dance and idle jumps stop. Hovering wakes it with a stretch and blink before its greeting. Mochi stays awake while its card is open. Animation pauses when hidden; macOS Reduce Motion uses static awake/asleep poses and static z’s. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background. It expands to 300 × 340 points for sample matches or Spotify search, and returns to the compact size after reset or an empty/clarification response.
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
 - Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
-- Mochi asks for another preference after the first submission. These are fixed local prompts, ready for a future discovery service.
+- Mood submissions show sample matches or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
 - Click the reset arrow to start a **new listening request**.
 - Press **Escape**, click the close button, or click outside the card to dismiss it. Closing retains your draft and preferences during this app session.
 - Use **Hide Mochi / Show Mochi** in the menu-bar panel. Hiding also closes the card; visibility is remembered after quitting.
@@ -213,7 +215,7 @@ For fast checks while working on Python, without starting the backend or compili
 bash scripts/test-backend.sh --python-only
 ```
 
-The Python tests check vocal and energy preferences, scoped negation, word boundaries, conflicts, unspecified preferences, uppercase input, combined requests, trimming, Unicode, input limits, malformed JSON, model failure, and the documented response format. They use deterministic or injected model outputs, so they require no model download. Failures identify the test and example that failed.
+The Python tests check vocal and energy preferences, explicit BPM values/ranges, scoped negation, word boundaries, conflicts, unspecified preferences, uppercase input, combined requests, trimming, Unicode, input limits, malformed JSON, model failure, catalog validation, selection constraints, ranking, cached embeddings, and the documented response format. They use deterministic or injected model outputs, so they require no model download. Failures identify the test and example that failed.
 
 With the semantic extra installed and model prepared, also compare actual model inference on the held-out requests:
 
@@ -221,7 +223,7 @@ With the semantic extra installed and model prepared, also compare actual model 
 bash scripts/test-backend.sh --semantic
 ```
 
-This requires at least 85% exact agreement on that small authored set and improvement over the rules-only baseline. The evaluation report and remaining misses are recorded in [the walkthrough](docs/intent-understanding.md).
+This requires at least 85% exact agreement on the small authored intent set and improvement over the rules-only baseline. It also verifies four sample-track retrieval smoke cases with outbound sockets blocked; these are acceptance checks, not a general recommendation accuracy measurement. The intent evaluation report and remaining misses are recorded in [the walkthrough](docs/intent-understanding.md).
 
 The native companion checks use a simulated backend by default. With the development server running, `bash scripts/test-companion.sh --live-backend` exercises Return submission through the real backend and confirms the response appears in the card.
 

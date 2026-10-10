@@ -85,7 +85,7 @@ struct CompanionChecks {
         }
         try await Task.sleep(for: .milliseconds(50))
         precondition(companion.request.summary == "Soft piano for studying" && companion.request.draft.isEmpty)
-        precondition(companion.request.reply.contains("Request received"))
+        precondition(companion.request.reply.contains(liveBackend ? "Sample matches" : "Request received"))
         if liveBackend { print("PASS: native card Return → real FastAPI → confirmed request in card") }
         let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                      windowNumber: card.windowNumber, context: nil, characters: "\u{1b}",
@@ -209,9 +209,10 @@ struct CompanionChecks {
         guard let back = button("Back to listening request", in: card.contentView!) else { fatalError("Missing back button") }
         precondition(press(back))
         try await Task.sleep(for: .milliseconds(100))
-        precondition(!companion.request.isSearchPresented && card.frame.size == MochiCompanionCard.size)
+        let listeningSize = companion.request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size
+        precondition(!companion.request.isSearchPresented && card.frame.size == listeningSize)
         precondition(companion.request.summary == "Soft piano for studying")
-        print("PASS: Return searches, rendered results, native result-click playback, and compact mode restoration")
+        print("PASS: Return searches, rendered results, native result-click playback, and listening mode restoration")
 
         for (prompt, expected, filename, intent, clarification) in [
             ("Help me unwind after a long day, no vocals", "Low energy · Instrumental", "understood-card.png",
@@ -220,8 +221,10 @@ struct CompanionChecks {
              ["vocals": true, "energy": NSNull()] as [String: Any], "What energy level would you like?" as Any)
         ] {
             if !liveBackend {
+                let selection = clarification is NSNull ? mochiSampleSelectionPayload() : [
+                    "catalog_kind": "fictional_sample", "method": "none", "tracks": [], "message": "Clarify your request."]
                 let data = try JSONSerialization.data(withJSONObject: ["received_prompt": prompt,
-                    "intent": intent, "clarification": clarification] as [String: Any])
+                    "intent": intent, "clarification": clarification, "selection": selection] as [String: Any])
                 SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
             }
             guard let requestInput = card.firstResponder as? NSTextInputClient else { fatalError("Request input lost focus") }
@@ -245,6 +248,75 @@ struct CompanionChecks {
             }
         }
         print("PASS: native Return displays understood preferences and asks about conflicting energy")
+
+        func findIdentifier(_ identifier: String, in element: NSObject) -> NSObject? {
+            if value("accessibilityIdentifier", from: element) as? String == identifier { return element }
+            for child in value("accessibilityChildren", from: element) as? [Any] ?? [] {
+                if let child = child as? NSObject, let found = findIdentifier(identifier, in: child) { return found }
+            }
+            return nil
+        }
+        for (prompt, matching, filename) in [("calm piano without vocals 80-100 BPM", true, "selection-card.png"),
+                                            ("no vocals 300 BPM", false, "empty-selection-card.png")] {
+            if !liveBackend {
+                var selection = mochiSampleSelectionPayload()
+                if matching {
+                    selection["tracks"] = (selection["tracks"] as! [[String: Any]]).filter {
+                        let bpm = $0["bpm"] as! Int
+                        return (80...100).contains(bpm)
+                    }
+                }
+                if !matching {
+                    selection["tracks"] = []
+                    selection["method"] = "none"
+                    selection["message"] = "No sample tracks meet those requirements. Try a wider BPM range or different preferences."
+                }
+                let data = try JSONSerialization.data(withJSONObject: ["received_prompt": prompt,
+                    "intent": ["vocals": false, "energy": matching ? "low" : NSNull(),
+                               "bpm_min": matching ? 80 : 300, "bpm_max": matching ? 100 : 300], "selection": selection] as [String: Any])
+                SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
+            }
+            guard let input = card.firstResponder as? NSTextInputClient else { fatalError("Selection composer lost focus") }
+            input.insertText(prompt, replacementRange: NSRange(location: NSNotFound, length: 0))
+            try await Task.sleep(for: .milliseconds(50))
+            card.sendEvent(enter)
+            let deadline = Date().addingTimeInterval(3)
+            while !companion.request.preferences.contains(prompt) {
+                precondition(Date() < deadline, "Selection submission failed: \(companion.request.reply)")
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            precondition(companion.request.hasSelectedTracks == matching)
+            precondition(card.frame.size == (matching ? MochiCompanionCard.searchSize : MochiCompanionCard.size))
+            precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
+            precondition(card.firstResponder is NSTextInputClient, "Resizing lost composer focus")
+            if matching {
+                let first = companion.request.selection!.tracks[0]
+                precondition(findIdentifier("mochiSelectedTrack-\(first.id)", in: card.contentView!) != nil,
+                             "Selected sample row was not rendered accessibly")
+                guard let searchToggle = button("Search songs and artists", in: card.contentView!) else { fatalError("Missing search toggle") }
+                precondition(press(searchToggle))
+                try await Task.sleep(for: .milliseconds(100))
+                guard let backToggle = button("Back to listening request", in: card.contentView!) else { fatalError("Missing return toggle") }
+                precondition(press(backToggle))
+                try await Task.sleep(for: .milliseconds(100))
+                precondition(companion.request.selection!.tracks[0].id == first.id && card.frame.size == MochiCompanionCard.searchSize)
+            } else {
+                precondition(companion.request.reply.contains("No sample tracks"))
+            }
+            if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = card.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent(filename))
+            }
+        }
+        guard let reset = button("New listening request", in: card.contentView!) else { fatalError("Missing request reset") }
+        precondition(press(reset))
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(companion.request.selection == nil && companion.request.preferences.isEmpty && card.frame.size == MochiCompanionCard.size)
+        print("PASS: native sample rows, keyboard submission, expanded placement, search/back retention, empty results and reset")
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
