@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from intent import interpret_request
 from semantic import EnergyMatcher
 from main import app
+from selection import SongSelector
+from catalog import load_catalog
 
 
 class IntentChecks(unittest.TestCase):
@@ -104,6 +106,9 @@ class BackendChecks(unittest.TestCase):
     def setUp(self):
         # Requests stay inside the test process; no running server is needed.
         self.enterContext(patch("main.interpret_request", side_effect=lambda prompt: interpret_request(prompt, use_semantic=False)))
+        selector = SongSelector(load_catalog())
+        self.enterContext(patch("main.get_selector", return_value=selector))
+        self.enterContext(patch("selection.get_matcher", return_value=None))
         self.client = self.enterContext(TestClient(app))
 
     def test_health(self):
@@ -115,7 +120,11 @@ class BackendChecks(unittest.TestCase):
         text = "夜の piano 🎵"
         response = self.client.post("/listening-request", json={"prompt": f"  {text}  "})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"received_prompt": text, "intent": {"vocals": None, "energy": None}, "clarification": None})
+        result = response.json()
+        self.assertEqual(result["received_prompt"], text)
+        self.assertEqual(result["intent"], {"vocals": None, "energy": None, "bpm_min": None, "bpm_max": None})
+        self.assertIsNone(result["clarification"])
+        self.assertEqual(result["selection"]["catalog_kind"], "fictional_sample")
 
     def test_vocals_and_energy_in_api_response(self):
         for prompt, vocals, energy in (("relaxing music, no vocals", False, "low"),
@@ -128,14 +137,42 @@ class BackendChecks(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 response = self.client.post("/listening-request", json={"prompt": prompt})
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json(), {"received_prompt": prompt, "intent": {"vocals": vocals, "energy": energy}, "clarification": None})
+                result = response.json()
+                self.assertEqual(result["received_prompt"], prompt)
+                self.assertEqual(result["intent"], {"vocals": vocals, "energy": energy, "bpm_min": None, "bpm_max": None})
+                self.assertIsNone(result["clarification"])
+                for track in result["selection"]["tracks"]:
+                    if vocals is not None:
+                        self.assertEqual(track["vocals"], vocals)
+                    if energy is not None:
+                        self.assertEqual(track["energy"], energy)
 
     def test_conflicting_request_returns_clarification(self):
         response = self.client.post("/listening-request", json={"prompt": "instrumental with singing, calm and upbeat"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["intent"], {"vocals": None, "energy": None})
+        self.assertEqual(response.json()["intent"], {"vocals": None, "energy": None, "bpm_min": None, "bpm_max": None})
         self.assertIn("vocals or instrumental", response.json()["clarification"])
         self.assertIn("energy level", response.json()["clarification"])
+        self.assertEqual(response.json()["selection"]["tracks"], [])
+
+    def test_catalog_selection_and_bpm_in_response(self):
+        result = self.client.post("/listening-request", json={"prompt": "calm piano without vocals, 80-100 BPM"}).json()
+        self.assertEqual((result["intent"]["bpm_min"], result["intent"]["bpm_max"]), (80, 100))
+        self.assertIn(result["selection"]["tracks"][0]["id"], {"sample-paper-lantern", "sample-moonlit-keys"})
+        self.assertLessEqual(len(result["selection"]["tracks"]), 5)
+        for track in result["selection"]["tracks"]:
+            self.assertFalse(track["vocals"])
+            self.assertEqual(track["energy"], "low")
+            self.assertTrue(80 <= track["bpm"] <= 100)
+        empty = self.client.post("/listening-request", json={"prompt": "no vocals 300 BPM"}).json()["selection"]
+        self.assertEqual(empty["tracks"], [])
+        self.assertIn("No sample tracks", empty["message"])
+
+    def test_invalid_catalog_returns_actionable_server_error(self):
+        with patch("main.get_selector", side_effect=ValueError("bad catalog")):
+            response = self.client.post("/listening-request", json={"prompt": "piano"})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Sample catalog unavailable", response.json()["detail"])
 
     def test_invalid_input_is_rejected(self):
         for body in ({}, {"prompt": None}, {"prompt": 42}, {"prompt": ""},
@@ -159,6 +196,8 @@ class BackendChecks(unittest.TestCase):
         self.assertEqual(response["$ref"], "#/components/schemas/ListeningResponse")
         intent = schema["components"]["schemas"]["ListeningIntent"]
         self.assertEqual(set(intent["required"]), {"vocals", "energy"})
+        self.assertIn("selection", schema["components"]["schemas"]["ListeningResponse"]["required"])
+        self.assertIn("tracks", schema["components"]["schemas"]["SongSelection"]["properties"])
 
 
 if __name__ == "__main__":

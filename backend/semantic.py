@@ -73,6 +73,15 @@ class EnergyMatcher:
         return {label: float(self._np.dot(vector, centroid))
                 for label, centroid in self._centroids.items()}
 
+    def embed_tracks(self, descriptions):
+        """Reuse the loaded model and serialize its tokenizer/inference calls."""
+        with self._lock:
+            return list(self._model.passage_embed(descriptions))
+
+    def embed_query(self, prompt):
+        with self._lock:
+            return next(iter(self._model.query_embed(prompt)))
+
     def predict(self, prompt):
         scores = sorted(self.scores(prompt).items(), key=lambda item: item[1], reverse=True)
         label, similarity = scores[0]

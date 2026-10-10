@@ -21,9 +21,35 @@ class IntentResult:
     energy: Literal["low", "high"] | None = None
     clarification: str | None = None
     energy_locked: bool = False
+    bpm_min: float | None = None
+    bpm_max: float | None = None
 
     def values(self):
         return {"vocals": self.vocals, "energy": self.energy}
+
+
+def _tempo_preference(text):
+    """Only explicit numbers constrain tempo; mood words never imply BPM."""
+    unit = r"(?:bpm|beats per minute)\b"
+    number = r"(\d+(?:\.\d+)?)"
+    ranges = list(re.finditer(r"\b(?:(?:between|from)\s+)?" + number +
+        r"\s*(?:-|to|and)\s*" + number + r"\s*" + unit, text))
+    matches = [(match, float(match[1]), float(match[2])) for match in ranges]
+    for match in re.finditer(r"\b" + number + r"\s*" + unit, text):
+        if not any(start.start() <= match.start() < start.end() for start in ranges):
+            matches.append((match, float(match[1]), float(match[1])))
+    if not re.search(r"\b" + unit, text):
+        return None, None, None
+    question = "What BPM value or range would you like? Try 90 BPM or 80–100 BPM."
+    if not matches:
+        return None, None, question
+    for match, lower, upper in matches:
+        before = text[max(0, match.start() - 30):match.start()]
+        if (not 20 <= lower <= upper <= 400 or _negated(text, match.start()) or
+            re.search(r"(?:under|over|below|above|around|about|at least|at most|less than|more than)\s*$", before)):
+            return None, None, question
+    lower, upper = max(item[1] for item in matches), min(item[2] for item in matches)
+    return (lower, upper, None) if lower <= upper else (None, None, question)
 
 
 def _negated(text, start):
@@ -66,8 +92,11 @@ def interpret_request(prompt, *, use_semantic=True, matcher=None):
         questions.append("Would you like vocals or instrumental music?")
     if energy_conflict or (excluded_energy and not positive_energy):
         questions.append("What energy level would you like?")
+    bpm_min, bpm_max, tempo_question = _tempo_preference(text)
+    if tempo_question:
+        questions.append(tempo_question)
     result = IntentResult(vocals, energy, " ".join(questions) or None,
-                          bool(positive_energy or excluded_energy))
+                          bool(positive_energy or excluded_energy), bpm_min, bpm_max)
 
     # Vocal constraints are handled separately and can distort energy similarity.
     energy_text = " ".join(VOCAL_CLAUSE.sub(" ", text).split()).strip(" ,.;!?")

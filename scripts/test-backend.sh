@@ -2,10 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 backend/.venv/bin/python Tests/BackendChecks.py
+backend/.venv/bin/python Tests/SelectionChecks.py
 if [[ "${1:-}" == "--python-only" ]]; then
     exit 0
 fi
 if [[ "${1:-}" == "--semantic" ]]; then
+    backend/.venv/bin/python Tests/SelectionChecks.py --semantic
     backend/.venv/bin/python scripts/evaluate-intent.py --split test --semantic --check
 fi
 test_build_dir=$(mktemp -d /private/tmp/mochi-backend-tests.XXXXXX)
