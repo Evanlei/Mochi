@@ -4,7 +4,7 @@
 
 A personal desktop DJ, built with Swift and SwiftUI. Describe a session to floating Mochi; the local Python backend discovers Last.fm candidates and ranks them to your taste, while Spotify handles playback.
 
-The native companion, live discovery integration, independent ranking, conservative Spotify resolution, partial queue playback, and local taste memory are implemented. Live Last.fm validation still needs an API key; real-account recommendation playback remains to be checked.
+The native companion, live discovery integration, independent ranking, conservative Spotify resolution, partial queue playback, and local taste memory are implemented. Live Last.fm source checks and a real discovery/ranking request have passed; real-account recommendation playback remains to be checked.
 
 ## Current functionality
 

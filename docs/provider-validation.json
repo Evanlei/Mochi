@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-10T16:37:34Z",
+  "checked_at": "2026-10-10T17:19:59Z",
   "live": true,
   "note": "Three smoke cases measure access and feature availability, not overall catalog coverage or tempo accuracy.",
   "results": [
@@ -8,9 +8,27 @@
       "category": "mainstream",
       "title": "Blinding Lights",
       "artist": "The Weeknd",
-      "status": "blocked",
-      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
-      "elapsed_ms": 0
+      "status": "ok",
+      "tags": [
+        "synthwave",
+        "synthpop",
+        "pop",
+        "2019",
+        "the weeknd",
+        "2010s",
+        "electropop",
+        "-1001740215468",
+        "synth-pop",
+        "2020s"
+      ],
+      "missing_features": [
+        "bpm",
+        "vocals",
+        "energy"
+      ],
+      "tag_candidates": 5,
+      "similar_candidates": 5,
+      "elapsed_ms": 2139
     },
     {
       "provider": "ReccoBeats",
@@ -24,16 +42,34 @@
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 2751
+      "elapsed_ms": 3785
     },
     {
       "provider": "Last.fm",
       "category": "recent",
       "title": "Manchild",
       "artist": "Sabrina Carpenter",
-      "status": "blocked",
-      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
-      "elapsed_ms": 0
+      "status": "ok",
+      "tags": [
+        "pop",
+        "rnb",
+        "2025",
+        "country",
+        "country pop",
+        "synthpop",
+        "pop rock",
+        "urban cowboy",
+        "misandry",
+        "europop"
+      ],
+      "missing_features": [
+        "bpm",
+        "vocals",
+        "energy"
+      ],
+      "tag_candidates": 5,
+      "similar_candidates": 5,
+      "elapsed_ms": 2814
     },
     {
       "provider": "ReccoBeats",
@@ -48,16 +84,23 @@
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 1745
+      "elapsed_ms": 1998
     },
     {
       "provider": "Last.fm",
       "category": "instrumental",
       "title": "River Flows in You",
       "artist": "Yiruma",
-      "status": "blocked",
-      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
-      "elapsed_ms": 0
+      "status": "ok",
+      "tags": [],
+      "missing_features": [
+        "bpm",
+        "vocals",
+        "energy"
+      ],
+      "tag_candidates": 5,
+      "similar_candidates": 5,
+      "elapsed_ms": 2135
     },
     {
       "provider": "ReccoBeats",
@@ -72,7 +115,7 @@
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 2517
+      "elapsed_ms": 3393
     }
   ]
 }
