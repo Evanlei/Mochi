@@ -1,19 +1,88 @@
+"""Explicit constraints take priority; uncertain energy can use a local model."""
+
+import re
+import logging
+import unicodedata
+from dataclasses import dataclass, replace
+from typing import Literal
+
+VOCALS = re.compile(r"\b(?:vocals?|singing|singers?|lyrics|voices?)\b")
+INSTRUMENTAL = re.compile(r"\b(?:instrumentals?|wordless)\b")
+LOW_ENERGY = re.compile(r"\b(?:relax(?:ing|ed)?|calm(?:ing|er)?|mellow|chill|gentle|soothing|peaceful|laid[ -]back|low[ -]energy|downtempo)\b")
+HIGH_ENERGY = re.compile(r"\b(?:energetic|upbeat|lively|high[ -]energy|hype|intense)\b")
+VOCAL_CLAUSE = re.compile(r"\b(?:(?:no preference for|don't mind|dont mind|don't want|dont want|no|not|without|avoid|skip|exclude|nothing|never|with)\s+)?(?:vocals?|singing|singers?|lyrics|voices?|instrumentals?|wordless)\b")
+NEGATORS = {"no", "not", "without", "avoid", "skip", "exclude", "nothing", "never", "don't", "dont"}
+MODIFIERS = {"any", "more", "very", "too", "really", "much", "a", "bit", "of", "with", "the", "that", "something", "songs", "music", "tracks", "to", "be", "want", "do"}
+
+
+@dataclass(frozen=True)
+class IntentResult:
+    vocals: bool | None = None
+    energy: Literal["low", "high"] | None = None
+    clarification: str | None = None
+    energy_locked: bool = False
+
+    def values(self):
+        return {"vocals": self.vocals, "energy": self.energy}
+
+
+def _negated(text, start):
+    # Stop at conjunctions/punctuation so "no vocals and upbeat" keeps upbeat.
+    clause = re.split(r"[,;.!?]", text[:start])[-1]
+    tokens = re.findall(r"[a-z]+(?:'[a-z]+)?", clause)
+    count = 0
+    for token in reversed(tokens[-8:]):
+        if token in NEGATORS:
+            count += 1
+        elif token not in MODIFIERS:
+            break
+    return count % 2 == 1
+
+
+def interpret_request(prompt, *, use_semantic=True, matcher=None):
+    text = unicodedata.normalize("NFKC", prompt).casefold().replace("’", "'")
+    text = text.replace("–", "-").replace("—", "-")
+    vocal_values = set()
+    for pattern, positive in ((VOCALS, True), (INSTRUMENTAL, False)):
+        for match in pattern.finditer(text):
+            before = text[max(0, match.start() - 35):match.start()]
+            if re.search(r"(?:no preference (?:for|about)|don't mind|dont mind|don't care about|any preference for)\s*$", before):
+                continue
+            vocal_values.add(not positive if _negated(text, match.start()) else positive)
+    if re.search(r"\beither\b.*(?:\b(?:vocals?|singing)\b.*\bor\b.*\binstrumental\b|\binstrumental\b.*\bor\b.*\b(?:vocals?|singing)\b)", text):
+        vocal_values.clear()
+
+    positive_energy, excluded_energy = set(), set()
+    for pattern, value in ((LOW_ENERGY, "low"), (HIGH_ENERGY, "high")):
+        for match in pattern.finditer(text):
+            (excluded_energy if _negated(text, match.start()) else positive_energy).add(value)
+
+    vocal_conflict = len(vocal_values) > 1
+    energy_conflict = len(positive_energy) > 1 or bool(positive_energy & excluded_energy)
+    vocals = next(iter(vocal_values)) if len(vocal_values) == 1 else None
+    energy = next(iter(positive_energy)) if len(positive_energy) == 1 and not energy_conflict else None
+    questions = []
+    if vocal_conflict:
+        questions.append("Would you like vocals or instrumental music?")
+    if energy_conflict or (excluded_energy and not positive_energy):
+        questions.append("What energy level would you like?")
+    result = IntentResult(vocals, energy, " ".join(questions) or None,
+                          bool(positive_energy or excluded_energy))
+
+    # Vocal constraints are handled separately and can distort energy similarity.
+    energy_text = " ".join(VOCAL_CLAUSE.sub(" ", text).split()).strip(" ,.;!?")
+    if use_semantic and not result.energy_locked and len(energy_text.split()) >= 2:
+        if matcher is None:
+            from semantic import get_matcher
+            matcher = get_matcher()
+        if matcher is not None:
+            try:
+                result = replace(result, energy=matcher.predict(energy_text))
+            except Exception:
+                # A model failure must not invalidate explicit vocal constraints.
+                logging.getLogger(__name__).warning("Local intent inference failed; using explicit constraints")
+    return result
+
+
 def parse_intent(prompt: str):
-    text = prompt.lower()
-
-    vocals = None
-    if "no vocals" in text:
-        vocals = False
-    elif "with vocals" in text:
-        vocals = True
-
-    energy = None
-    if "relaxing" in text:
-        energy = "low"
-    elif "energetic" in text:
-        energy = "high"
-
-    return {
-        "vocals": vocals,
-        "energy": energy
-    }
+    return interpret_request(prompt).values()

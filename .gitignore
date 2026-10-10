@@ -7,3 +7,4 @@ xcuserdata/
 .venv/
 __pycache__/
 *.py[cod]
+.models/
