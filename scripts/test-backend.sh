@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 backend/.venv/bin/python Tests/BackendChecks.py
 backend/.venv/bin/python Tests/SelectionChecks.py
+backend/.venv/bin/python Tests/DiscoveryChecks.py
 if [[ "${1:-}" == "--python-only" ]]; then
     exit 0
 fi

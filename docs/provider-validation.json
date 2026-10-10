@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-10T16:32:01Z",
+  "checked_at": "2026-10-10T16:37:34Z",
   "live": true,
   "note": "Three smoke cases measure access and feature availability, not overall catalog coverage or tempo accuracy.",
   "results": [
@@ -17,14 +17,14 @@
       "category": "mainstream",
       "title": "Blinding Lights",
       "artist": "The Weeknd",
-      "status": "missing_or_ambiguous",
-      "bpm": null,
-      "recording_id": null,
+      "status": "matched",
+      "bpm": 171.001,
+      "recording_id": "25c8ca63-5895-4572-84eb-a7040bc08c4d",
       "missing_features": [
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 1959
+      "elapsed_ms": 2751
     },
     {
       "provider": "Last.fm",
@@ -47,7 +47,7 @@
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 1064
+      "elapsed_ms": 1745
     },
     {
       "provider": "Last.fm",
@@ -70,7 +70,7 @@
         "vocals",
         "energy"
       ],
-      "elapsed_ms": 2599
+      "elapsed_ms": 2517
     }
   ]
 }

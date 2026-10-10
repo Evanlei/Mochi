@@ -10,7 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from catalog import SampleTrack, load_catalog
+from catalog import load_catalog
+from music import CatalogTrack, artist_key
 from intent import IntentResult
 from semantic import get_matcher
 
@@ -22,20 +23,23 @@ def words(text):
     return set(re.findall(r"[^\W\d_]+", text.casefold())) - STOP_WORDS
 
 
-class SelectedTrack(SampleTrack):
+class SelectedTrack(CatalogTrack):
     score: float
 
 
 class SongSelection(BaseModel):
-    catalog_kind: Literal["fictional_sample"] = "fictional_sample"
+    catalog_kind: Literal["fictional_sample", "lastfm_live"] = "fictional_sample"
     method: Literal["semantic", "lexical", "none"]
     tracks: list[SelectedTrack]
     message: str | None = None
+    request_id: str | None = None
+    warnings: list[str] = []
 
 
 class SongSelector:
     def __init__(self, tracks):
         self.tracks = tuple(tracks)
+        self.catalog_kind = "fictional_sample" if all(track.id.startswith("sample-") for track in self.tracks) else "lastfm_live"
         self._documents = [words(track.search_text) for track in self.tracks]
         counts = Counter(word for document in self._documents for word in document)
         self._idf = {word: math.log((len(self.tracks) + 1) / (count + 1)) + 1
@@ -77,16 +81,19 @@ class SongSelector:
             raise ValueError("Invalid embedding")
         return tuple(value / norm for value in values)
 
-    def select(self, prompt, intent: IntentResult, *, use_semantic=True, encoder=None, limit=5):
+    def select(self, prompt, intent: IntentResult, *, use_semantic=True, encoder=None, limit=5, taste=None):
         if intent.clarification:
-            return SongSelection(method="none", tracks=[], message="Clarify your request before choosing sample tracks.")
+            return SongSelection(catalog_kind=self.catalog_kind, method="none", tracks=[], message="Clarify your request before choosing tracks.")
+        taste = taste or {"tracks": {}, "artists": {}, "recent": []}
         eligible = [index for index, track in enumerate(self.tracks)
                     if (intent.vocals is None or track.vocals == intent.vocals)
                     and (not intent.energy_locked or intent.energy is None or track.energy == intent.energy)
                     and (intent.bpm_min is None or track.bpm is not None and track.bpm >= intent.bpm_min)
-                    and (intent.bpm_max is None or track.bpm is not None and track.bpm <= intent.bpm_max)]
+                    and (intent.bpm_max is None or track.bpm is not None and track.bpm <= intent.bpm_max)
+                    and taste["tracks"].get(track.id, 0) >= 0]
         if not eligible:
-            return SongSelection(method="none", tracks=[], message="No sample tracks meet those requirements. Try a wider BPM range or different preferences.")
+            message = "No sample tracks meet those requirements. Try a wider BPM range or different preferences." if self.catalog_kind == "fictional_sample" else "No candidates have verified data for those requirements. Missing BPM, vocals, or energy cannot qualify. Try fewer requirements or another genre."
+            return SongSelection(catalog_kind=self.catalog_kind, method="none", tracks=[], message=message)
 
         scores, method = self._lexical_scores(prompt), "lexical"
         if use_semantic:
@@ -109,10 +116,15 @@ class SongSelector:
                 continue
             track = self.tracks[index]
             bonus = 0.08 if not intent.energy_locked and intent.energy == track.energy else 0.0
-            candidates.append(SelectedTrack(**track.model_dump(), score=round(similarity + bonus, 6)))
+            personal = 0.12 * max(0, taste["tracks"].get(track.id, 0))
+            personal += max(-0.08, min(0.08, 0.04 * taste["artists"].get(artist_key(track.artist), 0)))
+            personal -= min(0.15, 0.03 * taste["recent"].count(track.id))
+            values = track.model_dump()
+            if self.catalog_kind == "fictional_sample": values["source"] = "fictional_sample"
+            candidates.append(SelectedTrack(**values, score=round(similarity + bonus + personal, 6)))
         candidates.sort(key=lambda track: (-track.score, track.id))
-        message = None if candidates else "No close matches in the sample catalog. Try piano, acoustic guitar, jazz, or electronic music."
-        return SongSelection(method=method, tracks=candidates[:max(0, min(limit, 5))], message=message)
+        message = None if candidates else "No close matches. Try piano, acoustic guitar, jazz, or electronic music."
+        return SongSelection(catalog_kind=self.catalog_kind, method=method, tracks=candidates[:max(0, min(limit, 5))], message=message)
 
 
 @lru_cache(maxsize=1)

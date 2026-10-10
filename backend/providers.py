@@ -93,6 +93,13 @@ def entries(value):
     return value if isinstance(value, list) else []
 
 
+def section(value, key):
+    result = value.get(key, {})
+    if not isinstance(result, dict):
+        raise ProviderError("Last.fm returned an unexpected response. Try again.")
+    return result
+
+
 def lastfm_url(value):
     if not isinstance(value, str):
         return None
@@ -120,11 +127,11 @@ class LastFM:
 
     async def top_tracks(self, tag, *, limit=25):
         value, ttl = await self.request("tag.getTopTracks", tag=tag, limit=limit)
-        return self.parse_tracks(value.get("tracks", {}).get("track", []), (tag,), ttl)
+        return self.parse_tracks(section(value, "tracks").get("track", []), (tag,), ttl)
 
     async def similar(self, track, *, limit=15):
         value, ttl = await self.request("track.getSimilar", track=track.title, artist=track.artist, autocorrect=0, limit=limit)
-        return self.parse_tracks(value.get("similartracks", {}).get("track", []), (), ttl)
+        return self.parse_tracks(section(value, "similartracks").get("track", []), (), ttl)
 
     def parse_tracks(self, rows, tags, ttl):
         result = []
@@ -148,7 +155,7 @@ class LastFM:
     async def tags(self, track):
         value, ttl = await self.request("track.getTopTags", track=track.title, artist=track.artist, autocorrect=0)
         tags = []
-        for row in entries(value.get("toptags", {}).get("tag", [])):
+        for row in entries(section(value, "toptags").get("tag", [])):
             if isinstance(row, dict) and isinstance(row.get("name"), str):
                 tag = row["name"].strip().lower()
                 if 0 < len(tag) <= 60 and tag not in tags:
@@ -180,14 +187,20 @@ class ReccoBeats:
                     for artist in entries(row.get("artists", [])))]
         # Ambiguity is safer than applying a cover/remix's tempo to this recording.
         ids = {row.get("id") for row in matches}
-        if len(ids) != 1:
+        isrcs = {row.get("isrc") for row in matches}
+        durations = [row.get("durationMs") for row in matches]
+        same_recording = (len(isrcs) == 1 and None not in isrcs and "" not in isrcs
+            and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in durations)
+            and max(durations) - min(durations) <= 1000)
+        if not matches or (len(ids) != 1 and not same_recording):
             return track
         features = await self.features(matches[0])
         if not features:
             return track
         # Preserve the independently sourced title/artist/description verbatim.
         return track.model_copy(update={"bpm": features["bpm"], "feature_source": "reccobeats",
-            "feature_recording_id": features["feature_recording_id"], "feature_spotify_id": features["spotify_id"]})
+            "feature_recording_id": features["feature_recording_id"], "feature_spotify_id": features["spotify_id"],
+            "isrc": matches[0].get("isrc") or track.isrc, "duration_ms": matches[0].get("durationMs") or track.duration_ms})
 
     async def features_by_spotify_id(self, spotify_id):
         if not re.fullmatch(r"[A-Za-z0-9]{22}", spotify_id):
@@ -200,9 +213,13 @@ class ReccoBeats:
 
     async def features(self, row):
         identifier = row.get("id", "")
-        if not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-fA-F-]{36}", identifier): return None
+        href = row.get("href", "")
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-fA-F-]{36}", identifier)
+            or not isinstance(href, str) or not re.fullmatch(r"https://open.spotify.com/track/[A-Za-z0-9]{22}", href)): return None
         value, _, _ = await self.http.get("ReccoBeats", f"https://api.reccobeats.com/v1/track/{identifier}/audio-features", {}, missing_ok=True)
         tempo = value.get("tempo")
+        if value.get("id", identifier) != identifier or value.get("href", href) != href:
+            return None
         if isinstance(tempo, bool) or not isinstance(tempo, (int, float)) or not math.isfinite(tempo) or not 20 <= tempo <= 400:
             return None
         return {"bpm": float(tempo), "feature_recording_id": identifier,

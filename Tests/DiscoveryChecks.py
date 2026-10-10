@@ -13,6 +13,11 @@ from discovery import discover, discovery_tags
 from music import CatalogTrack, identity_key
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats, cache_lifetime
 from storage import ProviderCache, TasteStore
+from recommendations import RecommendationService
+from settings import Settings
+from intent import interpret_request, IntentResult
+from selection import SongSelector
+from unittest.mock import patch
 
 def track(title="Fixture Piano", artist="Fixture Artist", **kwargs):
     return CatalogTrack(id="lastfm-" + identity_key(title, artist), title=title, artist=artist,
@@ -157,6 +162,15 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
             self.replies.append(httpx.Response(200, content=json.dumps({"tempo": tempo}).encode()))
             self.assertIsNone((await ReccoBeats(self.http).enrich(track())).bpm)
 
+    async def test_reissues_share_isrc_but_different_recordings_do_not(self):
+        self.reply({"content": [self.recco_row(isrc="TEST12345678", durationMs=200000),
+            self.recco_row(id="15c8ca63-5895-4572-84eb-a7040bc08c4d", isrc="TEST12345678", durationMs=200005)]})
+        self.reply({"tempo": 90})
+        self.assertEqual((await ReccoBeats(self.http).enrich(track())).bpm, 90)
+        self.reply({"content": [self.recco_row(isrc="TEST12345678", durationMs=200000),
+            self.recco_row(id="15c8ca63-5895-4572-84eb-a7040bc08c4d", isrc="OTHER1234567", durationMs=200000)]})
+        self.assertIsNone((await ReccoBeats(self.http).enrich(track())).bpm)
+
     async def test_cancellation_propagates_without_caching(self):
         async def slow(request):
             await asyncio.sleep(10)
@@ -167,6 +181,64 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01); task.cancel()
             with self.assertRaises(asyncio.CancelledError): await task
         self.assertEqual(self.cache.connection.execute("SELECT COUNT(*) FROM responses").fetchone()[0], 0)
+
+    async def test_live_service_ranks_saves_context_and_uses_favorites(self):
+        methods = []
+        async def handle(request):
+            method = request.url.params.get("method")
+            methods.append(method)
+            if method == "track.getTopTags":
+                tags = ["jazz", "piano"] if request.url.params["track"] == "Fixture Piano" else ["jazz", "saxophone"]
+                return httpx.Response(200, json={"toptags": {"tag": [{"name": tag} for tag in tags]}}, headers={"Cache-Control": "max-age=100"})
+            rows = [{"name": "Fixture Sax", "artist": "Other Artist"}, {"name": "Fixture Piano", "artist": "Fixture Artist"}]
+            key = "similartracks" if method == "track.getSimilar" else "tracks"
+            return httpx.Response(200, json={key: {"track": rows}}, headers={"Cache-Control": "max-age=100"})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(self.directory)/"service"), client=client)
+        self.addAsyncCleanup(service.close)
+        service.http.interval = 0
+        with patch("selection.get_matcher", return_value=None):
+            selection = await service.recommend("jazz piano", interpret_request("jazz piano", use_semantic=False))
+            self.assertEqual(selection.catalog_kind, "lastfm_live")
+            self.assertEqual(selection.tracks[0].title, "Fixture Piano")
+            self.assertIsNotNone(selection.request_id)
+            self.assertTrue(all(row.vocals is None and row.energy is None for row in selection.tracks))
+            import uuid
+            service.taste.feedback(str(uuid.uuid4()), selection.request_id, selection.tracks[0].id, "like")
+            second = await service.recommend("jazz piano", IntentResult())
+            self.assertIn("track.getSimilar", methods)
+            self.assertGreater(second.tracks[0].score, selection.tracks[0].score)
+            strict = await service.recommend("jazz piano 80-100 BPM", IntentResult(bpm_min=80, bpm_max=100))
+            self.assertEqual(strict.tracks, [])
+            vocals = await service.recommend("jazz piano no vocals", IntentResult(vocals=False))
+            self.assertEqual(vocals.tracks, [])
+
+    async def test_live_setup_and_malformed_provider_are_actionable(self):
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"tracks": None})))
+        service = RecommendationService(Settings(lastfm_key="", data_directory=Path(self.directory)/"setup"), client=client)
+        self.addAsyncCleanup(service.close)
+        self.assertIn("LASTFM_API_KEY", (await service.recommend("jazz", IntentResult())).message)
+        self.reply({"tracks": None})
+        with self.assertRaises(ProviderError): await self.lastfm.top_tracks("jazz")
+
+
+class LiveRankingChecks(unittest.TestCase):
+    def test_missing_features_and_dislike_cannot_be_overridden(self):
+        tracks = [track(), track("Known Piano", bpm=90, vocals=False, energy="low")]
+        taste = {"tracks": {tracks[1].id: -1}, "artists": {}, "recent": []}
+        for intent in [IntentResult(vocals=False), IntentResult(energy="low", energy_locked=True), IntentResult(bpm_min=80, bpm_max=100)]:
+            self.assertEqual(SongSelector(tracks).select("piano", intent, use_semantic=False, taste=taste).tracks, [])
+
+    def test_personalization_is_bounded_and_repeated_like_is_not_amplified(self):
+        a, b = track("A Piano"), track("B Piano", artist="Other Artist")
+        taste = {"tracks": {b.id: 1}, "artists": {}, "recent": []}
+        selector = SongSelector([a, b])
+        baseline = selector.select("piano", IntentResult(), use_semantic=False)
+        personal = selector.select("piano", IntentResult(), use_semantic=False, taste=taste)
+        self.assertEqual(personal.tracks[0].id, b.id)
+        taste["recent"] = [b.id] * 100
+        replay = selector.select("piano", IntentResult(), use_semantic=False, taste=taste)
+        self.assertAlmostEqual(next(t.score for t in personal.tracks if t.id == b.id) - next(t.score for t in replay.tracks if t.id == b.id), 0.15)
 
 
 if __name__ == "__main__": unittest.main()

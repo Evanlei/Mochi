@@ -104,6 +104,7 @@ class SemanticChecks(unittest.TestCase):
 
 class BackendChecks(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict("os.environ", {"MOCHI_CATALOG_MODE": "sample"}))
         # Requests stay inside the test process; no running server is needed.
         self.enterContext(patch("main.interpret_request", side_effect=lambda prompt: interpret_request(prompt, use_semantic=False)))
         selector = SongSelector(load_catalog())
