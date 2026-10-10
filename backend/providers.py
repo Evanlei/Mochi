@@ -182,12 +182,13 @@ class ReccoBeats:
         value, _, _ = await self.http.get("ReccoBeats", "https://api.reccobeats.com/v1/track/search",
             {"searchText": track.title, "artist": track.artist, "size": 5})
         matches = [row for row in entries(value.get("content", [])) if isinstance(row, dict)
-            and normalized(row.get("trackTitle", "")) == normalized(track.title)
-            and any(isinstance(artist, dict) and normalized(artist.get("name", "")) == normalized(track.artist)
+            and isinstance(row.get("trackTitle"), str) and normalized(row["trackTitle"]) == normalized(track.title)
+            and any(isinstance(artist, dict) and isinstance(artist.get("name"), str) and normalized(artist["name"]) == normalized(track.artist)
                     for artist in entries(row.get("artists", [])))]
         # Ambiguity is safer than applying a cover/remix's tempo to this recording.
-        ids = {row.get("id") for row in matches}
-        isrcs = {row.get("isrc") for row in matches}
+        matches = [row for row in matches if isinstance(row.get("id"), str)]
+        ids = {row["id"] for row in matches}
+        isrcs = {row.get("isrc") if isinstance(row.get("isrc"), str) else None for row in matches}
         durations = [row.get("durationMs") for row in matches]
         same_recording = (len(isrcs) == 1 and None not in isrcs and "" not in isrcs
             and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in durations)
@@ -198,9 +199,12 @@ class ReccoBeats:
         if not features:
             return track
         # Preserve the independently sourced title/artist/description verbatim.
+        isrc, duration = matches[0].get("isrc"), matches[0].get("durationMs")
+        isrc = isrc if isinstance(isrc, str) and re.fullmatch(r"[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}", isrc) else track.isrc
+        duration = duration if isinstance(duration, int) and not isinstance(duration, bool) and duration > 0 else track.duration_ms
         return track.model_copy(update={"bpm": features["bpm"], "feature_source": "reccobeats",
             "feature_recording_id": features["feature_recording_id"], "feature_spotify_id": features["spotify_id"],
-            "isrc": matches[0].get("isrc") or track.isrc, "duration_ms": matches[0].get("durationMs") or track.duration_ms})
+            "isrc": isrc, "duration_ms": duration})
 
     async def features_by_spotify_id(self, spotify_id):
         if not re.fullmatch(r"[A-Za-z0-9]{22}", spotify_id):

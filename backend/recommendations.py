@@ -10,8 +10,8 @@ from dataclasses import replace
 import httpx
 from starlette.concurrency import run_in_threadpool
 
-from discovery import discover
-from music import CatalogTrack
+from discovery import discover, discovery_tags
+from music import CatalogTrack, normalized
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats
 from selection import SongSelection, SongSelector
 from storage import ProviderCache, TasteStore
@@ -74,7 +74,7 @@ class RecommendationService:
         # Mood adjectives remain subjective ranking cues. Only an explicit
         # 'low/high energy' requirement demands verified energy metadata.
         # Sample-mode behavior is unchanged.
-        if not re.search(r"\b(?:low|high)[ -]energy\b", prompt, re.IGNORECASE):
+        if not re.search(r"\b(?:low|high) energy\b", normalized(prompt)):
             intent = replace(intent, energy_locked=False)
         # A tiny in-memory LRU reuses embeddings only while the source text is
         # identical. At most eight bounded catalogs; never persist vectors.
@@ -84,7 +84,10 @@ class RecommendationService:
         self.selectors.move_to_end(signature)
         while len(self.selectors) > 8:
             self.selectors.popitem(last=False)
-        selection = await run_in_threadpool(self.selectors[signature].select, prompt, intent, taste=taste)
+        # Keep the complete request and add the inspected retrieval vocabulary:
+        # e.g. "Focus" also means the "study" pool when lexical fallback runs.
+        ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
+        selection = await run_in_threadpool(self.selectors[signature].select, ranking_prompt, intent, taste=taste)
         selection.catalog_kind = "lastfm_live"
         selection.warnings = list(dict.fromkeys(warnings))
         if selection.tracks:

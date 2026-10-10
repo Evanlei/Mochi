@@ -18,6 +18,9 @@ from settings import Settings
 from intent import interpret_request, IntentResult
 from selection import SongSelector
 from unittest.mock import patch
+from fastapi.testclient import TestClient
+from main import app
+import uuid
 
 def track(title="Fixture Piano", artist="Fixture Artist", **kwargs):
     return CatalogTrack(id="lastfm-" + identity_key(title, artist), title=title, artist=artist,
@@ -161,6 +164,8 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
             self.reply({"content": [self.recco_row()]})
             self.replies.append(httpx.Response(200, content=json.dumps({"tempo": tempo}).encode()))
             self.assertIsNone((await ReccoBeats(self.http).enrich(track())).bpm)
+        self.reply({"content": [self.recco_row(trackTitle=None), self.recco_row(artists=[{"name": None}])]})
+        self.assertIsNone((await ReccoBeats(self.http).enrich(track())).bpm)
 
     async def test_reissues_share_isrc_but_different_recordings_do_not(self):
         self.reply({"content": [self.recco_row(isrc="TEST12345678", durationMs=200000),
@@ -212,6 +217,22 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(strict.tracks, [])
             vocals = await service.recommend("jazz piano no vocals", IntentResult(vocals=False))
             self.assertEqual(vocals.tracks, [])
+            for prompt in ("jazz piano low energy", "jazz piano high–energy"):
+                strict_energy = await service.recommend(prompt, interpret_request(prompt, use_semantic=False))
+                self.assertEqual(strict_energy.tracks, [])
+
+    async def test_quick_choice_aliases_work_without_a_semantic_model(self):
+        async def handle(request):
+            if request.url.params["method"] == "track.getTopTags":
+                return httpx.Response(200, json={"toptags": {"tag": [{"name": "study"}, {"name": "chillout"}, {"name": "pop"}]}})
+            return httpx.Response(200, json={"tracks": {"track": [{"name": "Fixture Session", "artist": "Fixture Artist"}]}})
+        service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(self.directory)/"choices"),
+                                        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+        self.addAsyncCleanup(service.close)
+        service.http.interval = 0
+        with patch("selection.get_matcher", return_value=None):
+            for prompt in ("Focus", "Unwind", "Surprise me"):
+                self.assertTrue((await service.recommend(prompt, IntentResult())).tracks, prompt)
 
     async def test_live_setup_and_malformed_provider_are_actionable(self):
         client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"tracks": None})))
@@ -239,6 +260,33 @@ class LiveRankingChecks(unittest.TestCase):
         taste["recent"] = [b.id] * 100
         replay = selector.select("piano", IntentResult(), use_semantic=False, taste=taste)
         self.assertAlmostEqual(next(t.score for t in personal.tracks if t.id == b.id) - next(t.score for t in replay.tracks if t.id == b.id), 0.15)
+
+
+class DiscoveryAPIChecks(unittest.TestCase):
+    def setUp(self):
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(patch("main.Settings.from_environment", return_value=Settings(lastfm_key="", data_directory=Path(directory))))
+        self.enterContext(patch("main.interpret_request", side_effect=lambda prompt: interpret_request(prompt, use_semantic=False)))
+        self.client = self.enterContext(TestClient(app))
+
+    def test_live_missing_key_is_not_a_fictional_fallback(self):
+        result = self.client.post("/listening-request", json={"prompt": "piano"}).json()
+        self.assertEqual(result["selection"]["catalog_kind"], "lastfm_live")
+        self.assertEqual(result["selection"]["tracks"], [])
+        self.assertIn("LASTFM_API_KEY", result["selection"]["message"])
+
+    def test_feedback_requires_context_is_idempotent_and_can_be_erased(self):
+        request_id = str(uuid.uuid4())
+        self.client.app.state.recommendations.taste.save_request(request_id, "piano", [track()])
+        body = {"event_id": str(uuid.uuid4()), "request_id": request_id, "track_id": track().id, "event": "like"}
+        self.assertEqual(self.client.post("/feedback", json=body).status_code, 200)
+        self.assertEqual(self.client.post("/feedback", json=body).status_code, 200)
+        self.assertEqual(self.client.post("/feedback", json={**body, "event": "dislike"}).status_code, 422)
+        self.assertEqual(self.client.post("/feedback", json={**body, "event_id": str(uuid.uuid4()), "track_id": "unknown"}).status_code, 422)
+        self.assertEqual(self.client.post("/feedback", json={**body, "spotify_payload": {}}).status_code, 422)
+        self.assertEqual(self.client.post("/feedback", json={**body, "event": "skip"}).status_code, 422)
+        self.assertEqual(self.client.delete("/taste").json(), {"status": "ok"})
+        self.assertEqual(self.client.app.state.recommendations.taste.snapshot()["tracks"], {})
 
 
 if __name__ == "__main__": unittest.main()
