@@ -26,7 +26,7 @@ The floating companion, listening-request card, local Python backend connection,
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now reach the local Python backend, which validates and echoes the text and detects explicit vocal and energy preferences. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
+**Mood requests now reach the local Python backend, which detects vocal and energy preferences using explicit constraints and optional local semantic matching. The card shows the understood preferences or asks about conflicts. They do not generate recommendations or start playback yet. Search mode separately finds specific songs or tracks by an artist and plays a result you choose.** Live Spotify login, connection restoration, and the original playback controls have been manually confirmed. Search and selected-track playback are covered by simulated API and native UI checks; a live account check is still needed.
 
 ## Requirements
 
@@ -64,17 +64,20 @@ In a separate VS Code terminal, from the repository root:
 
 ```bash
 cd backend
-uv sync
-uv run fastapi dev main.py
+uv sync --extra semantic
+uv run --extra semantic python ../scripts/prepare-intent-model.py
+uv run --extra semantic fastapi dev main.py
 ```
 
-Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed.
+The preparation command downloads a pinned public model once (about 67 MB of model weights) into an ignored local folder. On subsequent starts, only run `uv run --extra semantic fastapi dev main.py`. Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed. For the deterministic rules alone, use `uv run fastapi dev main.py`; missing model files or packages also fall back to those rules.
 
-Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request or choose Focus, Unwind, or Surprise me. The card shows a loading indicator, followed by **Request received. Recommendations are coming next.** The summary contains the text Python confirmed.
+Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, click the character, and send a mood request. Try **calm music without vocals** or **help me unwind after a long day, no vocals**. The card shows a loading indicator and then **Low energy · Instrumental**. A request such as **calm and energetic** gets a clarification question. The summary contains the text Python confirmed. Quick choices still submit their text; a preference that cannot be inferred remains unspecified.
 
 If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
 
 See [the backend walkthrough](docs/backend.md) for the request flow, code roles, API contract, and current limits.
+
+See [request understanding and evaluation](docs/intent-understanding.md) for the rule/model combination and its measured results.
 
 ## Connect Spotify
 
@@ -210,7 +213,15 @@ For fast checks while working on Python, without starting the backend or compili
 bash scripts/test-backend.sh --python-only
 ```
 
-The Python tests check vocal and energy preferences, unspecified preferences, uppercase input, combined requests, trimming, Unicode, input limits, malformed JSON, and the documented response format. Failures identify the test and example that failed.
+The Python tests check vocal and energy preferences, scoped negation, word boundaries, conflicts, unspecified preferences, uppercase input, combined requests, trimming, Unicode, input limits, malformed JSON, model failure, and the documented response format. They use deterministic or injected model outputs, so they require no model download. Failures identify the test and example that failed.
+
+With the semantic extra installed and model prepared, also compare actual model inference on the held-out requests:
+
+```bash
+bash scripts/test-backend.sh --semantic
+```
+
+This requires at least 85% exact agreement on that small authored set and improvement over the rules-only baseline. The evaluation report and remaining misses are recorded in [the walkthrough](docs/intent-understanding.md).
 
 The native companion checks use a simulated backend by default. With the development server running, `bash scripts/test-companion.sh --live-backend` exercises Return submission through the real backend and confirms the response appears in the card.
 

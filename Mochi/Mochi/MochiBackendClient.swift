@@ -6,9 +6,25 @@ struct MochiListeningRequest: Encodable {
 
 struct MochiListeningResponse: Decodable {
     let receivedPrompt: String
+    let intent: MochiListeningIntent?
+    let clarification: String?
 
     enum CodingKeys: String, CodingKey {
         case receivedPrompt = "received_prompt"
+        case intent, clarification
+    }
+}
+
+struct MochiListeningIntent: Decodable {
+    enum Energy: String, Decodable { case low, high }
+    let vocals: Bool?
+    let energy: Energy?
+
+    var summary: String {
+        var parts: [String] = []
+        if let energy { parts.append(energy == .low ? "Low energy" : "High energy") }
+        if let vocals { parts.append(vocals ? "With vocals" : "Instrumental") }
+        return parts.joined(separator: " · ")
     }
 }
 

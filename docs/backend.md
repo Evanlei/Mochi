@@ -1,15 +1,15 @@
 # Local backend walkthrough
 
-Mochi can now send listening text from the native card to Python and display confirmation. This establishes the connection that the recommendation system will eventually use. The current backend validates and echoes text and detects vocal and energy preferences from a few explicit phrases. It does not choose songs, start music, save requests to a database, or receive Spotify credentials.
+Mochi can now send listening text from the native card to Python and display confirmation. This establishes the connection that the recommendation system will eventually use. The current backend validates and echoes text and detects vocal and energy preferences from explicit constraints and optional local semantic matching. It does not choose songs, start music, save requests to a database, or receive Spotify credentials.
 
 ## What happens when you press Send
 
 1. `MochiRequestModel.submit()` reads your text or the quick choice you clicked. It trims whitespace, marks the request as pending, and shows **Sending your request…**.
 2. `MochiBackendClient.send()` converts `MochiListeningRequest` into JSON and sends a POST request to `http://127.0.0.1:8000/listening-request`.
 3. FastAPI matches that address to `receive_listening_request()`. Pydantic checks that the JSON contains a text field named `prompt`, removes leading/trailing whitespace, and requires 1–500 characters afterward. Invalid input receives HTTP 422 before the route function runs.
-4. `parse_intent()` in `backend/intent.py` checks the lowercased text for vocal and energy phrases. The route includes both preferences in a `ListeningResponse`. FastAPI checks its format and converts it to JSON.
+4. `interpret_request()` in `backend/intent.py` checks explicit vocal and energy constraints, including scoped negation and conflicts. If energy remains unspecified, the prepared local text model can compare the wording with reference descriptions. The route includes both preferences and an optional clarification in `ListeningResponse`. FastAPI checks its format and converts it to JSON.
 5. Swift checks for HTTP 200 and decodes the JSON into `MochiListeningResponse`. `CodingKeys` maps Python's `received_prompt` to Swift's `receivedPrompt`. The client also checks that Python echoed the submitted text.
-6. The model adds the confirmed text to the session's summary and displays **Request received. Recommendations are coming next.** It clears the submitted draft while preserving any new text you typed during the wait.
+6. The model adds the confirmed text to the session's summary and displays the detected preferences or a clarification question. If no preference is detected, it displays **Request received. Recommendations are coming next.** It clears the submitted draft while preserving any new text you typed during the wait.
 
 `/health` is a separate diagnostic route. Mochi does not call it before every request.
 
@@ -30,12 +30,12 @@ Mochi can now send listening text from the native card to Python and display con
 It returns HTTP 200:
 
 ```json
-{"received_prompt": "relaxing music for studying", "intent": {"vocals": null, "energy": "low"}}
+{"received_prompt": "relaxing music for studying", "intent": {"vocals": null, "energy": "low"}, "clarification": null}
 ```
 
-`intent.vocals` is `false` for `no vocals`, `true` for `with vocals`, and `null` if neither phrase appears. `null` represents Python's `None`: no preference was detected. These initial rules match phrases rather than interpreting arbitrary language; the first matching rule wins. Swift currently reads the confirmed text and ignores the additional intent field.
+`intent.vocals` is `false` for instrumental requests or exclusions such as `no vocals` and `without lyrics`, `true` for requests for singing/vocals, and `null` if unspecified or conflicting. `null` represents Python's `None`: no single preference was established. Word boundaries prevent partial-word matches. Negation is scoped so `no vocals and upbeat` preserves upbeat energy. Swift decodes both the intent and the clarification.
 
-`intent.energy` is `"low"` for `relaxing`, `"high"` for `energetic`, and `null` when neither appears. The parser collects vocals and energy before returning, so one preference cannot stop detection of the other. Automated checks cover the parser and both fields in the API response.
+`intent.energy` is `"low"`, `"high"`, or `null`. Explicit phrases such as calm, mellow, upbeat, or high energy take priority. Negated and conflicting energy constraints cannot be overwritten by the model. A prepared local model can infer an energy preference from broader wording, and abstains when similarity or the winning margin is too small. `clarification` contains a short question for conflicting preferences or an energy exclusion needing further detail.
 
 Missing, non-text, blank, or overlong prompts receive HTTP 422. Length is measured in Python characters (Unicode code points); Swift checks Unicode scalar count to match it. Spaces between words remain intact. The browser testing page at `/docs` documents these formats and can send example requests without running Mochi.
 
@@ -56,6 +56,8 @@ uv run fastapi dev main.py
 ```
 
 Keep this terminal running. Control-C stops the server; saved Python changes reload it. The `.venv` directory holds installed packages and is ignored by Git. `pyproject.toml` lists dependencies; `uv.lock` records their resolved versions so setup can be reproduced.
+
+Those commands use the deterministic rules. To enable semantic matching, run `uv sync --extra semantic`, prepare the model with `uv run --extra semantic python ../scripts/prepare-intent-model.py`, and start with `uv run --extra semantic fastapi dev main.py`. Model files are already prepared on this workspace. See [request understanding](intent-understanding.md) for the model, evaluation, and offline behavior.
 
 Python runs separately from the macOS app. Mochi currently does not start or package Python automatically. `Mochi/BackendTransport.plist` permits HTTP specifically to `127.0.0.1` through Apple's App Transport Security settings; Spotify continues to use HTTPS. The backend client uses an ephemeral session without persistent cookies or caching and refuses redirects.
 

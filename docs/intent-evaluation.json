@@ -1,0 +1,373 @@
+{
+  "split": "test",
+  "fixture_sha256": "c7f7d035eac99aa32aad61ae7d7b6befeaf609a22afb04e969884746c802d57c",
+  "model": {
+    "name": "BAAI/bge-small-en-v1.5",
+    "revision": "aa8f8b060edb00e03bfdd08813a2949946c8ba55",
+    "minimum_similarity": 0.65,
+    "minimum_margin": 0.02,
+    "load_seconds": 0.7236374159692787
+  },
+  "engines": {
+    "original": {
+      "requests": 24,
+      "exact_matches": 6,
+      "exact_accuracy": 0.25,
+      "field_accuracy": {
+        "vocals": 0.5,
+        "energy": 0.4583333333333333
+      },
+      "median_ms": 0.0003124878276139498,
+      "mistakes": [
+        {
+          "category": "vocals",
+          "prompt": "Only instrumentals, please",
+          "expected": {
+            "vocals": false,
+            "energy": null
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "vocals",
+          "prompt": "Give me songs with lyrics",
+          "expected": {
+            "vocals": true,
+            "energy": null
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "vocals",
+          "prompt": "Avoid singers in this playlist",
+          "expected": {
+            "vocals": false,
+            "energy": null
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "energy",
+          "prompt": "Gentle music without vocals",
+          "expected": {
+            "vocals": false,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "energy",
+          "prompt": "High-energy songs with singing",
+          "expected": {
+            "vocals": true,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "energy",
+          "prompt": "Peaceful wordless music",
+          "expected": {
+            "vocals": false,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "energy",
+          "prompt": "I'd like lively instrumentals",
+          "expected": {
+            "vocals": false,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "negation",
+          "prompt": "I don't want energetic music",
+          "expected": {
+            "vocals": null,
+            "energy": null
+          },
+          "actual": {
+            "vocals": null,
+            "energy": "high"
+          }
+        },
+        {
+          "category": "negation",
+          "prompt": "No upbeat music, make it soothing",
+          "expected": {
+            "vocals": null,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "negation",
+          "prompt": "Not without vocals",
+          "expected": {
+            "vocals": true,
+            "energy": null
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "negation",
+          "prompt": "Please skip lyrics and make it upbeat",
+          "expected": {
+            "vocals": false,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "conflict",
+          "prompt": "No singing, but with vocals",
+          "expected": {
+            "vocals": null,
+            "energy": null
+          },
+          "actual": {
+            "vocals": true,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Let me wind down before bed",
+          "expected": {
+            "vocals": null,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "I want music to ease the tension",
+          "expected": {
+            "vocals": null,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "I need songs that get me moving",
+          "expected": {
+            "vocals": null,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Put on something to fire me up",
+          "expected": {
+            "vocals": null,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Help me take it easy, without lyrics",
+          "expected": {
+            "vocals": false,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Keep me alert with some instrumentals",
+          "expected": {
+            "vocals": false,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        }
+      ]
+    },
+    "rules": {
+      "requests": 24,
+      "exact_matches": 18,
+      "exact_accuracy": 0.75,
+      "field_accuracy": {
+        "vocals": 1.0,
+        "energy": 0.75
+      },
+      "median_ms": 0.006791495252400637,
+      "mistakes": [
+        {
+          "category": "semantic",
+          "prompt": "Let me wind down before bed",
+          "expected": {
+            "vocals": null,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "I want music to ease the tension",
+          "expected": {
+            "vocals": null,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "I need songs that get me moving",
+          "expected": {
+            "vocals": null,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Put on something to fire me up",
+          "expected": {
+            "vocals": null,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Help me take it easy, without lyrics",
+          "expected": {
+            "vocals": false,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": false,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Keep me alert with some instrumentals",
+          "expected": {
+            "vocals": false,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": false,
+            "energy": null
+          }
+        }
+      ]
+    },
+    "hybrid": {
+      "requests": 24,
+      "exact_matches": 21,
+      "exact_accuracy": 0.875,
+      "field_accuracy": {
+        "vocals": 1.0,
+        "energy": 0.875
+      },
+      "median_ms": 2.7742499951273203,
+      "mistakes": [
+        {
+          "category": "semantic",
+          "prompt": "Put on something to fire me up",
+          "expected": {
+            "vocals": null,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": null,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Help me take it easy, without lyrics",
+          "expected": {
+            "vocals": false,
+            "energy": "low"
+          },
+          "actual": {
+            "vocals": false,
+            "energy": null
+          }
+        },
+        {
+          "category": "semantic",
+          "prompt": "Keep me alert with some instrumentals",
+          "expected": {
+            "vocals": false,
+            "energy": "high"
+          },
+          "actual": {
+            "vocals": false,
+            "energy": null
+          }
+        }
+      ]
+    }
+  }
+}

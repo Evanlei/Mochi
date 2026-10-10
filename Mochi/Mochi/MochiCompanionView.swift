@@ -37,7 +37,13 @@ final class MochiRequestModel: ObservableObject {
                 guard let self, self.requestGeneration == generation else { return }
                 self.preferences.append(response.receivedPrompt)
                 if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
-                self.reply = "Request received.\nRecommendations are coming next."
+                if let question = response.clarification {
+                    self.reply = question
+                } else if let summary = response.intent?.summary, !summary.isEmpty {
+                    self.reply = "Request received.\n\(summary)"
+                } else {
+                    self.reply = "Request received.\nRecommendations are coming next."
+                }
                 self.isSending = false
                 self.sendTask = nil
             } catch {
@@ -76,6 +82,8 @@ struct MochiCompanionCard: View {
             HStack(alignment: .top, spacing: 6) {
                 Text(request.isSearchPresented ? "Search Spotify" : request.reply)
                     .font(.system(size: 13)).lineSpacing(2)
+                    .lineLimit(3)
+                    .help(request.isSearchPresented ? "Search Spotify" : request.reply)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("mochiReply")

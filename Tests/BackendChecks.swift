@@ -8,10 +8,12 @@ struct BackendChecks {
         configuration.protocolClasses = [SpotifyMockProtocol.self]
         let client = MochiBackendClient(session: URLSession(configuration: configuration))
         let text = "夜の piano 🎵"
-        let data = try JSONSerialization.data(withJSONObject: ["received_prompt": text])
+        let data = try JSONSerialization.data(withJSONObject: ["received_prompt": text,
+            "intent": ["vocals": false, "energy": "low"], "clarification": NSNull()] as [String: Any])
         SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
         let result = try await client.send(prompt: "  \(text)  ")
         precondition(result.receivedPrompt == text)
+        precondition(result.intent?.summary == "Low energy · Instrumental" && result.clarification == nil)
         let sent = SpotifyMockProtocol.server.requests()[0]
         precondition(sent.url?.absoluteString == "http://127.0.0.1:8000/listening-request")
         precondition(sent.httpMethod == "POST" && sent.value(forHTTPHeaderField: "Content-Type") == "application/json")
@@ -31,6 +33,7 @@ struct BackendChecks {
             (SpotifyReply(status: 302), "302"),
             (SpotifyReply(data: Data("not json".utf8)), "unexpected"),
             (SpotifyReply(data: Data(#"{"received_prompt":"wrong request"}"#.utf8)), "unexpected"),
+            (SpotifyReply(data: Data(#"{"received_prompt":"piano","intent":{"vocals":false,"energy":"invalid"}}"#.utf8)), "unexpected"),
             (SpotifyReply(error: .cannotConnectToHost), "Start it"),
             (SpotifyReply(error: .timedOut), "too long")
         ] {
@@ -81,6 +84,19 @@ struct BackendChecks {
         try await Task.sleep(for: .milliseconds(600))
         precondition(model.preferences == ["new"] && model.draft.isEmpty && model.reply.contains("Request received"))
         print("PASS: loading, duplicate prevention, edited draft retention, failure/retry, reset cancellation and stale replies")
+
+        model.reset()
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: Data(#"{"received_prompt":"calm instrumentals","intent":{"vocals":false,"energy":"low"},"clarification":null}"#.utf8))])
+        model.draft = "calm instrumentals"
+        model.submit()
+        try await waitFor { !model.isSending }
+        precondition(model.reply.contains("Low energy · Instrumental"))
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: Data(#"{"received_prompt":"calm and energetic","intent":{"vocals":null,"energy":null},"clarification":"What energy level would you like?"}"#.utf8))])
+        model.draft = "calm and energetic"
+        model.submit()
+        try await waitFor { !model.isSending }
+        precondition(model.reply == "What energy level would you like?" && model.canSubmit == false)
+        print("PASS: understood preferences and clarification shown in the compact card model")
 
         if CommandLine.arguments.contains("--live") {
             let result = try await MochiBackendClient().send(prompt: "  Live piano check 🎵  ")

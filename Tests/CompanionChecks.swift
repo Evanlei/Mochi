@@ -213,6 +213,39 @@ struct CompanionChecks {
         precondition(companion.request.summary == "Soft piano for studying")
         print("PASS: Return searches, rendered results, native result-click playback, and compact mode restoration")
 
+        for (prompt, expected, filename, intent, clarification) in [
+            ("Help me unwind after a long day, no vocals", "Low energy · Instrumental", "understood-card.png",
+             ["vocals": false, "energy": "low"] as [String: Any], NSNull() as Any),
+            ("calm and energetic music with vocals", "What energy level would you like?", "clarification-card.png",
+             ["vocals": true, "energy": NSNull()] as [String: Any], "What energy level would you like?" as Any)
+        ] {
+            if !liveBackend {
+                let data = try JSONSerialization.data(withJSONObject: ["received_prompt": prompt,
+                    "intent": intent, "clarification": clarification] as [String: Any])
+                SpotifyMockProtocol.server.configure([SpotifyReply(data: data)])
+            }
+            guard let requestInput = card.firstResponder as? NSTextInputClient else { fatalError("Request input lost focus") }
+            requestInput.insertText(prompt, replacementRange: NSRange(location: NSNotFound, length: 0))
+            try await Task.sleep(for: .milliseconds(50))
+            card.sendEvent(enter)
+            let deadline = Date().addingTimeInterval(3)
+            while !companion.request.preferences.contains(prompt) {
+                precondition(Date() < deadline, "Native understanding request failed: \(companion.request.reply)")
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            precondition(companion.request.reply.contains(expected))
+            try await Task.sleep(for: .milliseconds(50))
+            if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = card.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                let path = URL(fileURLWithPath: previewDirectory).appendingPathComponent(filename)
+                try image.representation(using: .png, properties: [:])!.write(to: path)
+            }
+        }
+        print("PASS: native Return displays understood preferences and asks about conflicting energy")
+
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
