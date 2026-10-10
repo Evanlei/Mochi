@@ -8,3 +8,7 @@ xcuserdata/
 __pycache__/
 *.py[cod]
 .models/
+.env
+.env.*
+!.env.example
+.data/

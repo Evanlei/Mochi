@@ -53,6 +53,8 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
+    { name = "python-dotenv" },
 ]
 
 [package.optional-dependencies]
@@ -64,6 +66,8 @@ semantic = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.142.2" },
     { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.7,<1" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "python-dotenv", specifier = ">=1.2,<2" },
 ]
 provides-extras = ["semantic"]
 

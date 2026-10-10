@@ -1,0 +1,76 @@
+{
+  "checked_at": "2026-10-10T16:32:01Z",
+  "live": true,
+  "note": "Three smoke cases measure access and feature availability, not overall catalog coverage or tempo accuracy.",
+  "results": [
+    {
+      "provider": "Last.fm",
+      "category": "mainstream",
+      "title": "Blinding Lights",
+      "artist": "The Weeknd",
+      "status": "blocked",
+      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
+      "elapsed_ms": 0
+    },
+    {
+      "provider": "ReccoBeats",
+      "category": "mainstream",
+      "title": "Blinding Lights",
+      "artist": "The Weeknd",
+      "status": "missing_or_ambiguous",
+      "bpm": null,
+      "recording_id": null,
+      "missing_features": [
+        "vocals",
+        "energy"
+      ],
+      "elapsed_ms": 1959
+    },
+    {
+      "provider": "Last.fm",
+      "category": "recent",
+      "title": "Manchild",
+      "artist": "Sabrina Carpenter",
+      "status": "blocked",
+      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
+      "elapsed_ms": 0
+    },
+    {
+      "provider": "ReccoBeats",
+      "category": "recent",
+      "title": "Manchild",
+      "artist": "Sabrina Carpenter",
+      "status": "missing_or_ambiguous",
+      "bpm": null,
+      "recording_id": null,
+      "missing_features": [
+        "vocals",
+        "energy"
+      ],
+      "elapsed_ms": 1064
+    },
+    {
+      "provider": "Last.fm",
+      "category": "instrumental",
+      "title": "River Flows in You",
+      "artist": "Yiruma",
+      "status": "blocked",
+      "reason": "Add LASTFM_API_KEY to backend/.env, then restart the backend.",
+      "elapsed_ms": 0
+    },
+    {
+      "provider": "ReccoBeats",
+      "category": "instrumental",
+      "title": "River Flows in You",
+      "artist": "Yiruma",
+      "status": "missing_or_ambiguous",
+      "bpm": null,
+      "recording_id": null,
+      "missing_features": [
+        "vocals",
+        "energy"
+      ],
+      "elapsed_ms": 2599
+    }
+  ]
+}
