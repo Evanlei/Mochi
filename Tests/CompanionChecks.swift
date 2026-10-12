@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import SwiftUI
 
@@ -99,6 +100,13 @@ struct CompanionChecks {
         print("PASS: native panel creation, accessible toggle, keyboard typing/Return/Escape, and request retention")
 
         // Exercise SwiftUI buttons through their native accessibility actions.
+        // A client query makes SwiftUI create its virtual accessibility children.
+        let accessibilityStatus = await Task.detached {
+            let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+            var windows: CFTypeRef?
+            return AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windows)
+        }.value
+        precondition(accessibilityStatus == .success, "Could not initialize native accessibility checks")
         func value(_ name: String, from element: NSObject) -> Any? {
             let selector = NSSelectorFromString(name)
             guard element.responds(to: selector) else { return nil }
@@ -340,6 +348,9 @@ struct CompanionChecks {
             precondition(button("Like Development recording 1", in: card.contentView!) != nil)
             precondition(button("Dislike Development recording 1", in: card.contentView!) != nil)
             precondition(button("Play matches", in: card.contentView!) != nil)
+            let seed = companion.request.selection!.tracks[0]
+            precondition(findIdentifier("mochiSongOptions-\(seed.id)", in: card.contentView!) != nil,
+                         "Song options menu was not accessible")
             if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
                 let view = card.contentView!
                 view.layoutSubtreeIfNeeded()
@@ -347,8 +358,34 @@ struct CompanionChecks {
                 view.cacheDisplay(in: view.bounds, to: image)
                 try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("live-selection-card.png"))
             }
-            companion.request.reset()
             print("PASS: live discovery attribution, accessible feedback controls, nullable-feature rows and compact card")
+            let similarRows = rows.enumerated().map { index, row in
+                var next = row
+                next["id"] = "lastfm-" + String(repeating: String(index + 5), count: 64)
+                next["title"] = "Similar recording \(index + 1)"
+                return next
+            }
+            let similarData = try JSONSerialization.data(withJSONObject: ["received_prompt": "piano",
+                "selection": ["catalog_kind": "lastfm_live", "method": "lexical",
+                    "request_id": UUID().uuidString, "tracks": similarRows, "warnings": []]])
+            companion.request.draft = "jazz for tomorrow"
+            SpotifyMockProtocol.server.configure([SpotifyReply(data: similarData)])
+            companion.request.moreLikeThis(seed)
+            while companion.request.isSending { try await Task.sleep(for: .milliseconds(10)) }
+            try await Task.sleep(for: .milliseconds(100))
+            precondition(companion.request.similarTo == seed.title && companion.request.draft == "jazz for tomorrow")
+            precondition(card.frame.size == MochiCompanionCard.searchSize)
+            precondition(findIdentifier("mochiSimilarSeed", in: card.contentView!) != nil)
+            precondition(findIdentifier("mochiSelectedTrack-\(similarRows[0]["id"] as! String)", in: card.contentView!) != nil)
+            if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = card.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("similar-selection-card.png"))
+            }
+            companion.request.reset()
+            print("PASS: accessible song options, similar-song context, draft retention and compact native rendering")
         }
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
