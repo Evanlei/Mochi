@@ -15,6 +15,7 @@ xcrun swiftc -parse-as-library -swift-version 5 \
     Mochi/Mochi/LocalSpotifyClient.swift \
     Mochi/Mochi/SpotifySearchClient.swift \
     Mochi/Mochi/MochiBackendClient.swift \
+    Mochi/Mochi/MochiArtistPreferences.swift \
     Mochi/Mochi/SpotifySearchModel.swift \
     Tests/SpotifyTestSupport.swift \
     Tests/SearchChecks.swift -o "$test_build_dir/search-checks"

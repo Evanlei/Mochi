@@ -2,6 +2,29 @@ import Foundation
 
 struct MochiListeningRequest: Encodable {
     let prompt: String
+    let favoriteArtists: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case prompt, favoriteArtists = "favorite_artists"
+    }
+}
+
+struct MochiArtistSearchResponse: Decodable {
+    let query: String
+    let artists: [String]
+}
+
+enum MochiArtistName {
+    static func key(_ value: String) -> String {
+        value.precomposedStringWithCompatibilityMapping.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    static func valid(_ value: String) -> Bool {
+        !key(value).isEmpty && value.unicodeScalars.count <= 200 &&
+        value.rangeOfCharacter(from: .controlCharacters) == nil &&
+        value == value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 struct MochiSimilarRequest: Encodable {
@@ -127,13 +150,54 @@ struct MochiBackendClient {
             delegate: MochiBackendRedirectDelegate(), delegateQueue: nil)
     }
 
-    func send(prompt: String) async throws -> MochiListeningResponse {
+    func send(prompt: String, favoriteArtists: [String] = []) async throws -> MochiListeningResponse {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.unicodeScalars.count <= 500 else {
             throw MochiBackendError.invalidPrompt
         }
-        return try await receive(path: "listening-request", body: JSONEncoder().encode(MochiListeningRequest(prompt: text)),
+        guard favoriteArtists.count <= 3, favoriteArtists.allSatisfy(MochiArtistName.valid),
+              Set(favoriteArtists.map(MochiArtistName.key)).count == favoriteArtists.count else {
+            throw MochiBackendError.invalidArtists
+        }
+        return try await receive(path: "listening-request", body: JSONEncoder().encode(MochiListeningRequest(
+            prompt: text, favoriteArtists: favoriteArtists.isEmpty ? nil : favoriteArtists)),
                                  expectedPrompt: text, similar: false)
+    }
+
+    func searchArtists(query: String) async throws -> [String] {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard MochiArtistName.valid(text), text.unicodeScalars.count <= 100 else { throw MochiBackendError.invalidArtists }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/artist-search")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": text])
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch let error as URLError {
+            if error.code == .cancelled { throw CancellationError() }
+            if error.code == .timedOut { throw MochiBackendError.timeout }
+            if [.cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet].contains(error.code) {
+                throw MochiBackendError.unavailable
+            }
+            throw MochiBackendError.connectionFailed
+        }
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw MochiBackendError.invalidResponse }
+        guard http.statusCode == 200 else {
+            if http.statusCode == 503, let body = try? JSONDecoder().decode([String: String].self, from: data),
+               let detail = body["detail"], detail.unicodeScalars.count <= 200 {
+                throw MochiBackendError.artistSearch(detail)
+            }
+            if http.statusCode == 504 { throw MochiBackendError.timeout }
+            throw MochiBackendError.server(http.statusCode)
+        }
+        guard let result = try? JSONDecoder().decode(MochiArtistSearchResponse.self, from: data), result.query == text,
+              result.artists.count <= 5, result.artists.allSatisfy(MochiArtistName.valid),
+              Set(result.artists.map(MochiArtistName.key)).count == result.artists.count else {
+            throw MochiBackendError.invalidResponse
+        }
+        return result.artists
     }
 
     func moreLikeThis(_ track: MochiSelectedTrack, requestID: String, prompt: String) async throws -> MochiListeningResponse {
@@ -234,6 +298,7 @@ enum MochiBackendError: LocalizedError {
     case invalidPrompt, unavailable, timeout, connectionFailed, invalidResponse
     case server(Int)
     case expiredRecommendation, invalidRecommendation
+    case invalidArtists, artistSearch(String)
 
     var errorDescription: String? {
         switch self {
@@ -245,6 +310,8 @@ enum MochiBackendError: LocalizedError {
         case .server(let status): return "The backend couldn't accept this request (\(status)). Try again."
         case .expiredRecommendation: return "This recommendation expired or was cleared. Send a new listening request."
         case .invalidRecommendation: return "Choose a song from the current live recommendations."
+        case .invalidArtists: return "Choose up to three different artist names."
+        case .artistSearch(let message): return message
         }
     }
 }

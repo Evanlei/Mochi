@@ -88,14 +88,18 @@ final class MochiCompanionController: ObservableObject {
     private var globalMouseMonitor: Any?
     private var musicSubscription: AnyCancellable?
     private var cardSizeSubscription: AnyCancellable?
+    private var artistReactionSubscription: AnyCancellable?
     private var isMusicPlaying = false
     private let mascotSize = NSSize(width: 108, height: 100)
-    private var cardSize: CGSize { request.isSearchPresented || request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size }
+    private var cardSize: CGSize {
+        request.artists.isPresented ? MochiCompanionCard.artistEditorSize(count: request.artists.names.count) :
+        (request.isSearchPresented || request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
+    }
 
     init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil, request: MochiRequestModel? = nil) {
         self.defaults = defaults
         self.search = search ?? SpotifySearchModel()
-        self.request = request ?? MochiRequestModel()
+        self.request = request ?? MochiRequestModel(artists: MochiArtistPreferencesModel(defaults: defaults))
         isVisible = defaults.object(forKey: "mochi.companion.visible") as? Bool ?? true
     }
 
@@ -122,11 +126,17 @@ final class MochiCompanionController: ObservableObject {
         cardPanel = card
         // @Published emits before assigning the property. Resize on the next run-loop turn
         // so a synchronous hosting-view layout cannot consume the old mode and text binding.
-        cardSizeSubscription = request.$isSearchPresented.combineLatest(request.$selection)
-            .map { searching, selection in searching || selection?.tracks.isEmpty == false }
+        cardSizeSubscription = request.$isSearchPresented.combineLatest(request.$selection, request.artists.$isPresented, request.artists.$names)
+            .map { searching, selection, editingArtists, names in
+                editingArtists ? MochiCompanionCard.artistEditorSize(count: names.count) :
+                (searching || selection?.tracks.isEmpty == false ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
+            }
             .removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] expanded in
-            self?.cardPanel?.setContentSize(expanded ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
+            self?.cardPanel?.setContentSize(expanded)
             self?.positionCard()
+        }
+        artistReactionSubscription = request.artists.$lastAdded.compactMap { $0 }.sink { [weak self] _ in
+            (self?.mascotPanel?.contentView as? MascotInteractionView)?.reactToPreference()
         }
 
         let saved = defaults.dictionary(forKey: "mochi.companion.position")
@@ -195,6 +205,8 @@ final class MochiCompanionController: ObservableObject {
     }
 
     func stop() {
+        request.artists.cancelSearch()
+        artistReactionSubscription?.cancel(); artistReactionSubscription = nil
         request.reset()
         search.reset()
         cardSizeSubscription?.cancel()
@@ -287,6 +299,11 @@ private final class MascotInteractionView: NSView {
 
     required init?(coder: NSCoder) { nil }
     func setMusicPlaying(_ playing: Bool) { artwork.rootView.isMusicPlaying = playing }
+    func reactToPreference() {
+        recordInteraction()
+        guard artwork.rootView.isAnimating else { return }
+        artwork.rootView.hoverStartedAt = Date.timeIntervalSinceReferenceDate
+    }
     func setEngaged(_ engaged: Bool) {
         recordInteraction()
         artwork.rootView.isEngaged = engaged

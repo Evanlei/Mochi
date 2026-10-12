@@ -6,6 +6,7 @@ import SwiftUI
 
 @MainActor
 final class MochiRequestModel: ObservableObject {
+    let artists: MochiArtistPreferencesModel
     @Published var isSearchPresented = false
     @Published var draft = ""
     @Published private(set) var preferences: [String] = []
@@ -36,9 +37,10 @@ final class MochiRequestModel: ObservableObject {
     private var lastSelectedID: String?
     private var currentPrompt: String?
 
-    init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil) {
+    init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil, artists: MochiArtistPreferencesModel? = nil) {
         self.backend = backend ?? MochiBackendClient()
         self.resolver = resolver ?? SpotifySearchClient()
+        self.artists = artists ?? MochiArtistPreferencesModel(backend: backend)
     }
 
     func configure(using auth: SpotifyAuthModel, playback: SpotifyPlaybackModel) {
@@ -90,13 +92,14 @@ final class MochiRequestModel: ObservableObject {
         feedbackMessage = nil
         reply = seed.map { "Finding songs like \($0.title)…" } ?? "Sending your request…"
         let generation = requestGeneration
+        let favoriteArtists = artists.names
         sendTask = Task { [weak self, backend] in
             do {
                 let response: MochiListeningResponse
                 if let seed, let seedRequestID {
                     response = try await backend.moreLikeThis(seed, requestID: seedRequestID, prompt: text)
                 } else {
-                    response = try await backend.send(prompt: text)
+                    response = try await backend.send(prompt: text, favoriteArtists: favoriteArtists)
                 }
                 try Task.checkCancellation()
                 guard let self, self.requestGeneration == generation else { return }
@@ -297,6 +300,7 @@ final class MochiRequestModel: ObservableObject {
                 try await backend.clearTaste()
                 guard generation == self.requestGeneration, !Task.isCancelled else { return }
                 self.likedTracks = []; self.dislikedTracks = []; self.lastSelectedID = nil
+                self.artists.clear()
                 self.feedbackMessage = "Taste memory cleared."
             } catch {
                 guard generation == self.requestGeneration, !Task.isCancelled else { return }
@@ -327,116 +331,136 @@ final class MochiRequestModel: ObservableObject {
 struct MochiCompanionCard: View {
     static let size = CGSize(width: 300, height: 180)
     static let searchSize = CGSize(width: 300, height: 340)
-    var cardSize: CGSize { request.isSearchPresented || request.hasSelectedTracks ? Self.searchSize : Self.size }
+    static let artistSize = CGSize(width: 300, height: 320)
+    static func artistEditorSize(count: Int) -> CGSize {
+        count == 3 ? CGSize(width: 300, height: 210) : artistSize
+    }
+    var cardSize: CGSize { artists.isPresented ? Self.artistEditorSize(count: artists.names.count) : (request.isSearchPresented || request.hasSelectedTracks ? Self.searchSize : Self.size) }
     @ObservedObject var request: MochiRequestModel
     @ObservedObject var search: SpotifySearchModel
+    @ObservedObject var artists: MochiArtistPreferencesModel
     var onClose: () -> Void
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
+    init(request: MochiRequestModel, search: SpotifySearchModel, onClose: @escaping () -> Void) {
+        self.request = request; self.search = search; self.artists = request.artists; self.onClose = onClose
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 6) {
-                Text(request.isSearchPresented ? "Search Spotify" : request.reply)
+                Text(artists.isPresented ? "Who do you like listening to?" : (request.isSearchPresented ? "Search Spotify" : request.reply))
                     .font(.system(size: 13)).lineSpacing(2)
                     .lineLimit(3)
-                    .help(request.isSearchPresented ? "Search Spotify" : request.reply)
+                    .help(artists.isPresented ? "Choose favorite artists" : (request.isSearchPresented ? "Search Spotify" : request.reply))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("mochiReply")
-                Button { request.isSearchPresented.toggle(); composerFocused = true } label: {
-                    Image(systemName: request.isSearchPresented ? "bubble.left" : "magnifyingglass")
-                        .frame(width: 20, height: 20)
-                }
-                .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
-                .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
-                .accessibilityIdentifier("mochiSearchToggle")
-                .disabled(request.isSending || request.isStarting)
-                if request.isSearchPresented ? !search.query.isEmpty : (!request.preferences.isEmpty || request.isSending) {
-                    Button {
-                        if request.isSearchPresented { search.reset() } else { request.reset() }
-                        composerFocused = true
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .frame(width: 20, height: 20)
-                    }
-                    .help(request.isSearchPresented ? "Clear search" : "New listening request")
-                    .accessibilityLabel(request.isSearchPresented ? "Clear search" : "New listening request")
-                    .disabled(request.isSearchPresented && search.isStarting)
-                    .contextMenu { Button("Forget taste memory") { request.clearTaste() }.disabled(request.feedbackBusy || request.isSending || request.isStarting) }
-                }
-                Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
-                    .help("Close Mochi")
-                    .accessibilityLabel("Close Mochi")
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 10))
-
-            if request.isSearchPresented {
-                searchContent
-            } else if request.hasSelectedTracks {
-                selectionContent
-            } else if request.preferences.isEmpty {
-                HStack(spacing: 6) {
-                    choice("Focus")
-                    choice("Unwind")
-                    choice("Surprise me")
-                }
-            } else {
-                Text(request.summary)
-                    .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
-                    .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    .help(request.summary)
-            }
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                TextField("", text: composerText, axis: .vertical)
-                    .id(request.isSearchPresented)
-                    .font(.system(size: 11))
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...2)
-                    .focused($composerFocused)
-                    .onSubmit { submit() }
-                    .onChange(of: composerText.wrappedValue) { _, text in
-                        let limit = request.isSearchPresented ? 200 : 500
-                        if text.count > limit { composerText.wrappedValue = String(text.prefix(limit)) }
-                    }
-                    .overlay(alignment: .leading) {
-                        if composerText.wrappedValue.isEmpty {
-                            Text(request.isSearchPresented
-                                 ? (search.kind == .song ? "Song title…" : "Artist name…") : "Mood, artist, or song…")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.mochiMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .allowsHitTesting(false).accessibilityHidden(true)
+                if !artists.isPresented {
+                        Button { request.isSearchPresented.toggle(); composerFocused = true } label: {
+                            Image(systemName: request.isSearchPresented ? "bubble.left" : "magnifyingglass")
+                                .frame(width: 20, height: 20)
+                        }
+                        .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
+                        .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
+                        .accessibilityIdentifier("mochiSearchToggle")
+                        .disabled(request.isSending || request.isStarting)
+                        Button { artists.present() } label: {
+                            Image(systemName: artists.names.isEmpty ? "heart" : "heart.fill").frame(width: 20, height: 20)
+                        }
+                        .help("Favorite artists").accessibilityLabel("Edit favorite artists")
+                        .disabled(request.isSending || request.isStarting || request.feedbackBusy)
+                        if request.isSearchPresented ? !search.query.isEmpty : (!request.preferences.isEmpty || request.isSending) {
+                            Button {
+                                if request.isSearchPresented { search.reset() } else { request.reset() }
+                                composerFocused = true
+                            } label: {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .frame(width: 20, height: 20)
+                            }
+                            .help(request.isSearchPresented ? "Clear search" : "New listening request")
+                            .accessibilityLabel(request.isSearchPresented ? "Clear search" : "New listening request")
+                            .disabled(request.isSearchPresented && search.isStarting)
+                            .contextMenu { Button("Forget taste memory") { request.clearTaste() }.disabled(request.feedbackBusy || request.isSending || request.isStarting) }
                         }
                     }
-                    .accessibilityLabel(request.isSearchPresented ? "Search query" : "Describe what you want to listen to")
-                    .accessibilityIdentifier("mochiComposer")
-
-                Button { submit() } label: {
-                    Group {
-                        if !request.isSearchPresented && request.isSending {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
-                        }
-                    }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x60705E))
-                        .frame(width: 26, height: 26)
-                        .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Circle())
+                    Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
+                        .help("Close Mochi")
+                        .accessibilityLabel("Close Mochi")
                 }
                 .buttonStyle(.plain)
-                .disabled(request.isSearchPresented ? !search.canSubmit : !request.canSubmit)
-                .help(request.isSearchPresented ? "Search Spotify" : "Send listening request")
-                .accessibilityLabel(request.isSearchPresented ? "Search Spotify" : "Send listening request")
+                .font(.system(size: 10))
+
+                if artists.isPresented {
+                    MochiArtistPreferencesView(artists: artists)
+                } else if request.isSearchPresented {
+                    searchContent
+                } else if request.hasSelectedTracks {
+                    selectionContent
+                } else if request.preferences.isEmpty {
+                    HStack(spacing: 6) {
+                        choice("Focus")
+                        choice("Unwind")
+                        choice("Surprise me")
+                    }
+                } else {
+                    Text(request.summary)
+                        .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
+                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                        .help(request.summary)
+                }
+
+                Spacer(minLength: 0)
+
+                if !artists.isPresented {
+                HStack(spacing: 8) {
+                    TextField("", text: composerText, axis: .vertical)
+                        .id(request.isSearchPresented)
+                        .font(.system(size: 11))
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...2)
+                        .focused($composerFocused)
+                        .onSubmit { submit() }
+                        .onChange(of: composerText.wrappedValue) { _, text in
+                            let limit = request.isSearchPresented ? 200 : 500
+                            if text.count > limit { composerText.wrappedValue = String(text.prefix(limit)) }
+                        }
+                        .overlay(alignment: .leading) {
+                            if composerText.wrappedValue.isEmpty {
+                                Text(request.isSearchPresented
+                                     ? (search.kind == .song ? "Song title…" : "Artist name…") : "Mood, artist, or song…")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.mochiMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                        }
+                        .accessibilityLabel(request.isSearchPresented ? "Search query" : "Describe what you want to listen to")
+                        .accessibilityIdentifier("mochiComposer")
+
+                    Button { submit() } label: {
+                        Group {
+                            if !request.isSearchPresented && request.isSending {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
+                            }
+                        }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x60705E))
+                            .frame(width: 26, height: 26)
+                            .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(request.isSearchPresented ? !search.canSubmit : !request.canSubmit)
+                    .help(request.isSearchPresented ? "Search Spotify" : "Send listening request")
+                    .accessibilityLabel(request.isSearchPresented ? "Search Spotify" : "Send listening request")
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 42)
+                .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
             }
-            .padding(.horizontal, 10)
-            .frame(height: 42)
-            .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
         }
         .padding(14)
         .frame(width: cardSize.width, height: cardSize.height)
@@ -452,10 +476,10 @@ struct MochiCompanionCard: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
         .environment(\.colorScheme, .light)
         .onExitCommand(perform: onClose)
-        .task(id: request.isSearchPresented) {
+        .task(id: "\(request.isSearchPresented)-\(artists.isPresented)") {
             composerFocused = false
             await Task.yield()
-            composerFocused = true
+            composerFocused = !artists.isPresented
         }
     }
 
@@ -1010,7 +1034,7 @@ private enum MochiArt {
 
 }
 
-private extension Color {
+extension Color {
     init(hex: UInt32) {
         self.init(.sRGB, red: Double((hex >> 16) & 255) / 255,
                   green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1)
