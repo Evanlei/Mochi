@@ -129,6 +129,40 @@ class LastFM:
         value, ttl = await self.request("tag.getTopTracks", tag=tag, limit=limit)
         return self.parse_tracks(section(value, "tracks").get("track", []), (tag,), ttl)
 
+    @staticmethod
+    def artist_names(rows, *, limit):
+        """Keep bounded, usable identities; images/bios never enter our profile."""
+        import unicodedata
+        names, seen = [], set()
+        for row in entries(rows):
+            name = row.get("name") if isinstance(row, dict) else None
+            if not isinstance(name, str): continue
+            name = name.strip()
+            key = normalized(name)
+            if (not key or len(name) > 200 or key in seen
+                or any(unicodedata.category(ch) in {"Cc", "Cs"} for ch in name)):
+                continue
+            seen.add(key); names.append(name)
+            if len(names) >= limit: break
+        return names
+
+    async def search_artists(self, query):
+        value, _ = await self.request("artist.search", artist=query, limit=5, page=1)
+        matches = section(section(value, "results"), "artistmatches")
+        return self.artist_names(matches.get("artist", []), limit=5)
+
+    async def similar_artists(self, artist, *, limit=3):
+        value, _ = await self.request("artist.getSimilar", artist=artist, autocorrect=0, limit=limit)
+        names = self.artist_names(section(value, "similarartists").get("artist", []), limit=limit)
+        return [name for name in names if normalized(name) != normalized(artist)]
+
+    async def artist_tracks(self, artist, *, limit=10):
+        value, ttl = await self.request("artist.getTopTracks", artist=artist, autocorrect=0, limit=limit)
+        tracks = self.parse_tracks(section(value, "toptracks").get("track", []), (), ttl)
+        # Reject an unexpected correction/identity rather than silently changing
+        # a user's favorite. Provider popularity only selects this candidate pool.
+        return [track for track in tracks if normalized(track.artist) == normalized(artist)][:limit]
+
     async def similar(self, track, *, limit=15):
         value, ttl = await self.request("track.getSimilar", track=track.title, artist=track.artist, autocorrect=0, limit=limit)
         return self.parse_tracks(section(value, "similartracks").get("track", []), (), ttl)

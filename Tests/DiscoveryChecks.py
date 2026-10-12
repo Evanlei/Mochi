@@ -111,6 +111,28 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
     def reply(self, value, **kwargs):
         self.replies.append(httpx.Response(200, json=value, **kwargs))
 
+    async def test_artist_search_similarity_and_top_tracks(self):
+        self.reply({"results": {"artistmatches": {"artist": [
+            {"name": " Fixture Artist "}, {"name": "fixture artist"},
+            {"name": None}, {"name": "bad\nname"}, {"name": "音楽"}]}}},
+            headers={"Cache-Control": "max-age=100"})
+        self.assertEqual(await self.lastfm.search_artists("Fixture"), ["Fixture Artist", "音楽"])
+        self.assertEqual(await self.lastfm.search_artists("Fixture"), ["Fixture Artist", "音楽"])
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.requests[0].url.params["limit"], "5")
+        self.reply({"similarartists": {"artist": [{"name": "Fixture Artist"}, {"name": "Related Artist"}]}})
+        self.assertEqual(await self.lastfm.similar_artists("Fixture Artist"), ["Related Artist"])
+        self.reply({"toptracks": {"track": [
+            {"name": "Fixture Hit", "artist": {"name": "Fixture Artist"}},
+            {"name": "Wrong", "artist": {"name": "Other Artist"}}]}})
+        result = await self.lastfm.artist_tracks("Fixture Artist")
+        self.assertEqual([row.title for row in result], ["Fixture Hit"])
+        self.assertIsNone(result[0].bpm)
+        self.assertIsNone(result[0].vocals)
+        self.assertEqual(self.requests[-1].url.params["autocorrect"], "0")
+        self.reply({"results": {"artistmatches": []}})
+        with self.assertRaises(ProviderError): await self.lastfm.search_artists("broken")
+
     async def test_lastfm_tracks_tags_and_cached_credentials(self):
         self.reply({"tracks": {"track": [{"name": "Fixture Piano", "artist": {"name": "Fixture Artist"},
             "mbid": "", "url": "http://www.last.fm/music/Fixture/_/Piano"}, {"name": "", "artist": {"name": "bad"}}]}},
