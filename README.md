@@ -52,7 +52,7 @@ Most source editing can be done in VS Code. Xcode provides the native project, b
 3. Build and run with **Command-R**.
 4. Click the music-note icon in the macOS menu bar to open the panel.
 5. Mochi appears near the bottom-right of your desktop on first launch. Click the character to open the listening-request card. If you previously hid it, click **Show Mochi** in the menu-bar panel.
-6. Choose one to three favorite artists, or **Skip for now**. Artist lookup uses the running local backend; Spotify login is not needed. Click the heart later to edit your choices.
+6. Choose one to three favorite artists, or **Skip for now**. Start the local backend below first. Type a full artist name and press **Return** or **Add**, or click an autocomplete result. An exact match saves as a removable chip; partial names require choosing a result. Spotify login is not needed. Click the heart later to edit your choices.
 
 You can also build from the repository root:
 
@@ -83,6 +83,8 @@ The preparation command downloads a pinned public model once (about 67 MB of mod
 Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, connect Spotify, click the character, and try **jazz piano**, **indie rock**, or **mellow acoustic guitar**. The expanded card shows source links, available musical features, play buttons and likes/dislikes. Missing musical features stay unknown. Strict requests such as **no vocals** currently return empty live selections rather than guessed results. In fictional demo mode, try **calm piano without vocals 80–100 BPM** to exercise numeric filtering. **Calm and energetic** asks for clarification.
 
 If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
+
+Artist setup also needs this server for Last.fm lookup. After starting it, press **Return** or **Add** to retry the artist name already in the field; you do not need to retype it.
 
 See [the backend walkthrough](docs/backend.md) for the request flow, code roles, API contract, and current limits.
 
