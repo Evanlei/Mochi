@@ -455,6 +455,65 @@ struct CompanionChecks {
             print("PASS: desktop state refreshes with menu closed and app launch never repeats permission or OAuth requests")
         }
 
+        // Actual native artist editor buttons/typing with fixture-only HTTP.
+        let artistSuite = "com.evan.Mochi.artist-ui-checks.\(UUID().uuidString)"
+        let artistDefaults = UserDefaults(suiteName: artistSuite)!
+        defer { artistDefaults.removePersistentDomain(forName: artistSuite) }
+        let artists = MochiArtistPreferencesModel(backend: MochiBackendClient(session: session), defaults: artistDefaults)
+        let artistRequest = MochiRequestModel(backend: MochiBackendClient(session: session), artists: artists)
+        let artistCompanion = MochiCompanionController(defaults: artistDefaults, request: artistRequest)
+        artistCompanion.start(); artistCompanion.toggleCard()
+        defer { artistCompanion.stop() }
+        let artistCard = artistCompanion.cardPanel!
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(artistCard.frame.size == MochiCompanionCard.artistSize)
+        guard let skip = button("Skip for now", in: artistCard.contentView!) else { fatalError("Setup cannot be skipped") }
+        precondition(press(skip)); try await Task.sleep(for: .milliseconds(100))
+        precondition(!artists.isPresented && artistCard.frame.size == MochiCompanionCard.size)
+        guard let edit = button("Edit favorite artists", in: artistCard.contentView!) else { fatalError("No favorite editor button") }
+        precondition(press(edit)); try await Task.sleep(for: .milliseconds(100))
+        for name in ["Fixture Artist", "Second Fixture Artist", "Third Fixture Artist"] {
+            let suggestions = name == "Fixture Artist" ? [name, "Fixture Band", "An Artist With a Very Long Display Name That Must Truncate", "音楽", "Fixture Singer"] : [name]
+            SpotifyMockProtocol.server.configure([SpotifyReply(data: try JSONSerialization.data(withJSONObject: ["query": name, "artists": suggestions]))])
+            guard let artistInput = artistCard.firstResponder as? NSTextInputClient else { fatalError("Artist input is not focused") }
+            artistInput.insertText(name, replacementRange: NSRange(location: NSNotFound, length: 0))
+            let deadline = Date().addingTimeInterval(3)
+            while artists.suggestions.isEmpty {
+                precondition(Date() < deadline, "Artist autocomplete didn't finish")
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            if name == "Fixture Artist", let directory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = artistCard.contentView!
+                view.layoutSubtreeIfNeeded()
+                let rendered = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: rendered)
+                try rendered.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory).appendingPathComponent("artist-autocomplete.png"))
+            }
+            guard let add = button("Add \(name)", in: artistCard.contentView!) else { fatalError("Autocomplete result is not accessible") }
+            precondition(press(add)); try await Task.sleep(for: .milliseconds(100))
+        }
+        precondition(artists.names.count == 3)
+        precondition(artistCard.frame.size == MochiCompanionCard.artistEditorSize(count: 3))
+        try await Task.sleep(for: .milliseconds(400)) // Capture the settled spring pose.
+        if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+            let view = artistCard.contentView!
+            view.layoutSubtreeIfNeeded()
+            let rendered = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: rendered)
+            try rendered.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("artist-favorites.png"))
+        }
+        guard let remove = button("Remove Second Fixture Artist", in: artistCard.contentView!) else { fatalError("Artist chip cannot be removed") }
+        precondition(press(remove)); try await Task.sleep(for: .milliseconds(100))
+        guard let done = button("Done", in: artistCard.contentView!) else { fatalError("No Done action") }
+        precondition(press(done)); try await Task.sleep(for: .milliseconds(100))
+        precondition(artists.names == ["Fixture Artist", "Third Fixture Artist"] && !artists.isPresented)
+        precondition(MochiArtistPreferencesModel(defaults: artistDefaults).names == artists.names)
+        precondition(artistCard.frame.size == MochiCompanionCard.size)
+        precondition(NSScreen.screens.contains { $0.visibleFrame.contains(artistCard.frame) })
+        artistCompanion.stop()
+        print("PASS: native optional onboarding, artist autocomplete typing/Add/Remove/Done, card resizing and saved choices")
+
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })

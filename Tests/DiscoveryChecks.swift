@@ -58,6 +58,77 @@ struct DiscoveryChecks {
             }
         }
 
+        // Favorite setup uses only localhost/Last.fm identities, even without Spotify.
+        let suite = "com.evan.Mochi.artist-checks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let artists = MochiArtistPreferencesModel(backend: backend, defaults: defaults)
+        precondition(artists.isPresented && artists.names.isEmpty)
+        artists.finish()
+        precondition(!MochiArtistPreferencesModel(defaults: defaults).isPresented)
+        artists.present()
+        for name in ["音楽", "Favorite Artist", "Third Artist"] {
+            artists.query = name
+            SpotifyMockProtocol.server.configure([try json(["query": name, "artists": [name]])])
+            await artists.search()
+            precondition(artists.suggestions == [name])
+            artists.add(name)
+            let sent = SpotifyMockProtocol.server.requests()[0]
+            precondition(sent.url?.absoluteString == "http://127.0.0.1:8000/artist-search")
+            precondition(sent.value(forHTTPHeaderField: "Authorization") == nil)
+        }
+        artists.add("Fourth Artist")
+        precondition(artists.names == ["音楽", "Favorite Artist", "Third Artist"])
+        precondition(artists.lastAdded != nil)
+        artists.finish()
+        let restoredArtists = MochiArtistPreferencesModel(backend: backend, defaults: defaults)
+        precondition(restoredArtists.names == artists.names && !restoredArtists.isPresented)
+        restoredArtists.remove("Third Artist")
+        precondition(MochiArtistPreferencesModel(defaults: defaults).names == ["音楽", "Favorite Artist"])
+        print("PASS: optional artist setup, Unicode autocomplete, three-artist limit, removal and persistence")
+
+        for bad in [try json(["query": "wrong", "artists": ["Artist"]]),
+                    try json(["query": "test", "artists": ["Artist", "ARTIST"]]),
+                    try json(["query": "test", "artists": ["bad\nname"]]),
+                    try json(["query": "test", "artists": Array(repeating: "Artist", count: 6)])] {
+            SpotifyMockProtocol.server.configure([bad])
+            do { _ = try await backend.searchArtists(query: "test"); fatalError("Malformed artist search accepted") }
+            catch MochiBackendError.invalidResponse {}
+        }
+        let racingArtists = MochiArtistPreferencesModel(backend: backend)
+        racingArtists.query = "old"
+        var old = try json(["query": "old", "artists": ["Old Artist"]]); old.delay = 0.8
+        SpotifyMockProtocol.server.configure([old, try json(["query": "new", "artists": ["New Artist"]])])
+        let oldSearch = Task { await racingArtists.search() }
+        while !racingArtists.isSearching { try await Task.sleep(for: .milliseconds(10)) }
+        // Changing the query invalidates a reply even if its transport can't cancel.
+        racingArtists.query = "new"
+        await racingArtists.search(); await oldSearch.value
+        precondition(racingArtists.suggestions == ["New Artist"])
+        SpotifyMockProtocol.server.configure([])
+        racingArtists.query = "cancelled"
+        let cancelled = Task { await racingArtists.search() }
+        try await Task.sleep(for: .milliseconds(20)); cancelled.cancel(); await cancelled.value
+        precondition(SpotifyMockProtocol.server.requests().isEmpty && !racingArtists.isSearching)
+        racingArtists.query = "offline"
+        SpotifyMockProtocol.server.configure([SpotifyReply(error: .cannotConnectToHost)])
+        await racingArtists.search()
+        precondition(racingArtists.message?.contains("Start it") == true)
+        print("PASS: malformed artist replies, stale-query suppression, debounce cancellation and backend errors")
+
+        let personalized = MochiRequestModel(backend: backend, artists: restoredArtists)
+        SpotifyMockProtocol.server.configure([try response()])
+        personalized.submit("piano"); try await settle(personalized)
+        let profileBody = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+        precondition(profileBody["favorite_artists"] as? [String] == ["音楽", "Favorite Artist"])
+        precondition(Set(profileBody.keys) == ["prompt", "favorite_artists"])
+        personalized.reset()
+        precondition(restoredArtists.names.count == 2)
+        SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
+        personalized.clearTaste(); try await settle(personalized)
+        precondition(restoredArtists.names.isEmpty && MochiArtistPreferencesModel(defaults: defaults).names.isEmpty)
+        print("PASS: explicit favorites accompany discovery, survive request reset, and clear with taste memory")
+
         let track = try decodeSource(source())
         precondition(track.bpm == nil && track.vocals == nil && track.energy == nil)
         precondition(track.details == "Musical features unavailable")

@@ -183,13 +183,13 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         provider = AsyncMock()
         provider.artist_tracks.side_effect = lambda name, **kw: [track(f"Hit {i}", name) for i in range(10)]
         provider.similar_artists.return_value = ["Related Artist", "Other Neighbor", "Fixture Artist"]
-        provider.top_tracks.return_value = [track(f"Piano {i}", "Session Artist") for i in range(15)]
-        result, warnings = await discover("piano", provider, artists=["Fixture Artist", "Second Favorite"])
+        provider.top_tracks.side_effect = lambda tag, **kw: [track(f"{tag} {i}", "Session Artist") for i in range(15)]
+        result, warnings = await discover("piano jazz", provider, artists=["Fixture Artist", "Second Favorite", "Third Favorite"])
         self.assertEqual(warnings, [])
-        self.assertLessEqual(len(result), 65)
+        self.assertEqual(len(result), 65)
         self.assertEqual(len(result), len({row.id for row in result}))
-        self.assertEqual({row.artist for row in result[:5]},
-            {"Fixture Artist", "Second Favorite", "Session Artist", "Related Artist", "Other Neighbor"})
+        self.assertEqual({row.artist for row in result[:7]},
+            {"Fixture Artist", "Second Favorite", "Third Favorite", "Session Artist", "Related Artist", "Other Neighbor"})
         provider.similar_artists.assert_any_await("Fixture Artist", limit=3)
         # Partial failure does not replace favorites with invented recordings.
         provider.artist_tracks.side_effect = ProviderError("Artist unavailable")

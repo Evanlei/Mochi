@@ -145,6 +145,7 @@ struct MochiArtistPreferencesView: View {
             }
         }
         .task(id: artists.query) { await artists.search() }
+        .onChange(of: artists.names.count) { _, count in focused = count < 3 }
         .onDisappear { artists.cancelSearch() }
         .task { await Task.yield(); focused = true }
     }

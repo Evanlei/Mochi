@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-10-12T15:31:05Z",
+  "live": true,
+  "probe_artists": [
+    "Drake",
+    "Frank Ocean"
+  ],
+  "autocomplete_count": 5,
+  "exact_artist_found": true,
+  "autocomplete_elapsed_ms": 265,
+  "discovery_elapsed_ms": 7446,
+  "returned_tracks": 5,
+  "favorite_artist_tracks": 5,
+  "ranking_method": "none",
+  "unknown_bpm_rejected": true,
+  "warnings": [],
+  "note": "Source/API smoke check only; recommendation relevance and real Spotify playback need user judgment."
+}
