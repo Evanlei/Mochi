@@ -1,0 +1,55 @@
+{
+  "checked_at": "2026-10-12T02:36:44Z",
+  "live": true,
+  "prompt": "jazz piano",
+  "seed": {
+    "title": "Nuvole Bianche",
+    "artist": "Ludovico Einaudi"
+  },
+  "initial_count": 5,
+  "initial_elapsed_ms": 6420,
+  "similar_count": 5,
+  "similar_elapsed_ms": 5715,
+  "method": "semantic",
+  "warnings": [],
+  "previous_batch_excluded": true,
+  "original_prompt_preserved": true,
+  "tracks": [
+    {
+      "title": "Moonlight",
+      "artist": "The Piano Guys",
+      "bpm": null,
+      "vocals": null,
+      "energy": null
+    },
+    {
+      "title": "Rolling in the Deep",
+      "artist": "The Piano Guys",
+      "bpm": null,
+      "vocals": null,
+      "energy": null
+    },
+    {
+      "title": "Vladimir's Blues",
+      "artist": "Max Richter",
+      "bpm": null,
+      "vocals": null,
+      "energy": null
+    },
+    {
+      "title": "Angel Of Comfort",
+      "artist": "David Lanz",
+      "bpm": null,
+      "vocals": null,
+      "energy": null
+    },
+    {
+      "title": "Veloma",
+      "artist": "Fabrizio Paterlini",
+      "bpm": null,
+      "vocals": null,
+      "energy": null
+    }
+  ],
+  "note": "Live acquisition/API smoke check; not a ranking-quality or Spotify-playback evaluation."
+}
