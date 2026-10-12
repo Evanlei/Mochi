@@ -45,6 +45,10 @@ def discovery_tags(prompt):
     return [tag for _, tag in sorted(hits)[:2]]
 
 
+def is_broad_request(prompt):
+    return normalized(prompt) in {"surprise me", "anything", "any music", "music", "my favorites", "play my favorites"}
+
+
 async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
     if seed is not None:
         # An explicit choice replaces generic pools. Do not substitute unrelated
@@ -55,6 +59,8 @@ async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
         except ProviderError as error:
             return [], [str(error)]
     tags = discovery_tags(prompt)
+    if artists and is_broad_request(prompt):
+        tags = []  # The user's artists provide the starting point for this session.
     if not tags and not favorites and not artists:
         return [], ["Add a genre or instrument, such as jazz, piano, indie, or electronic."]
     tracks, warnings = {}, []

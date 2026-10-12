@@ -95,8 +95,10 @@ class SongSelector:
             message = "No sample tracks meet those requirements. Try a wider BPM range or different preferences." if self.catalog_kind == "fictional_sample" else "No candidates have verified data for those requirements. Missing BPM, vocals, or energy cannot qualify. Try fewer requirements or another genre."
             return SongSelection(catalog_kind=self.catalog_kind, method="none", tracks=[], message=message)
 
-        scores, method = self._lexical_scores(prompt), "lexical"
-        if use_semantic:
+        # A broad artist-seeded request has no session detail to compare against.
+        # Use explicit taste and provider pool order rather than arbitrary text scores.
+        scores, method = ([0.0] * len(self.tracks), "none") if allow_unmatched else (self._lexical_scores(prompt), "lexical")
+        if use_semantic and not allow_unmatched:
             encoder = encoder if encoder is not None else get_matcher()
             if encoder is not None:
                 try:
@@ -123,7 +125,8 @@ class SongSelector:
             values = track.model_dump()
             if self.catalog_kind == "fictional_sample": values["source"] = "fictional_sample"
             candidates.append(SelectedTrack(**values, score=round(similarity + bonus + personal, 6)))
-        candidates.sort(key=lambda track: (-track.score, track.id))
+        source_order = {track.id: index for index, track in enumerate(self.tracks)}
+        candidates.sort(key=lambda track: (-track.score, source_order[track.id] if allow_unmatched else track.id))
         message = None if candidates else "No close matches. Try piano, acoustic guitar, jazz, or electronic music."
         return SongSelection(catalog_kind=self.catalog_kind, method=method, tracks=candidates[:max(0, min(limit, 5))], message=message)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import httpx
 from discovery import discover, discovery_tags
-from music import CatalogTrack, identity_key
+from music import CatalogTrack, identity_key, artist_key
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats, cache_lifetime
 from storage import ProviderCache, TasteStore
 from recommendations import RecommendationService
@@ -228,7 +228,9 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         with patch("selection.get_matcher", return_value=None):
             result = await service.recommend("Surprise me", IntentResult(), artists=["Fixture Artist"])
             self.assertEqual([row.title for row in result.tracks], ["Favorite Hit"])
+            self.assertEqual(result.method, "none")
             self.assertIn("artist.getTopTracks", seen)
+            self.assertNotIn("tag.getTopTracks", seen)
             service.taste.feedback(str(uuid.uuid4()), result.request_id, result.tracks[0].id, "dislike")
             excluded = await service.recommend("Surprise me", IntentResult(), artists=["Fixture Artist"])
             self.assertEqual(excluded.tracks, [])
@@ -390,6 +392,15 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
 
 
 class LiveRankingChecks(unittest.TestCase):
+    def test_broad_artist_request_uses_taste_and_preserves_popularity_order(self):
+        top, second, neighbor = track("Most Popular"), track("Second Most Popular"), track("Neighbor", "Related Artist")
+        taste = {"tracks": {}, "artists": {}, "recent": [], "favorite_artists": {artist_key(top.artist)}}
+        selection = SongSelector([top, neighbor, second]).select("Surprise me", IntentResult(), taste=taste, allow_unmatched=True)
+        self.assertEqual([row.id for row in selection.tracks], [top.id, second.id, neighbor.id])
+        self.assertEqual(selection.method, "none")
+        strict = SongSelector([top]).select("Surprise me", IntentResult(bpm_min=80), taste=taste, allow_unmatched=True)
+        self.assertEqual(strict.tracks, [])
+
     def test_missing_features_and_dislike_cannot_be_overridden(self):
         tracks = [track(), track("Known Piano", bpm=90, vocals=False, energy="low")]
         taste = {"tracks": {tracks[1].id: -1}, "artists": {}, "recent": []}

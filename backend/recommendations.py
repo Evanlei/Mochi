@@ -10,7 +10,7 @@ from dataclasses import replace
 import httpx
 from starlette.concurrency import run_in_threadpool
 
-from discovery import discover, discovery_tags
+from discovery import discover, discovery_tags, is_broad_request
 from music import CatalogTrack, artist_key, identity_key, normalized
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats
 from selection import SongSelection, SongSelector
@@ -100,8 +100,7 @@ class RecommendationService:
         # Keep the complete request and add the inspected retrieval vocabulary:
         # e.g. "Focus" also means the "study" pool when lexical fallback runs.
         ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
-        broad_request = seed is None and bool(artists) and normalized(prompt) in {
-            "surprise me", "anything", "any music", "music", "my favorites", "play my favorites"}
+        broad_request = seed is None and bool(artists) and is_broad_request(prompt)
         selection = await run_in_threadpool(self.selectors[signature].select, ranking_prompt, intent,
                                            taste=taste, allow_unmatched=broad_request)
         selection.catalog_kind = "lastfm_live"
