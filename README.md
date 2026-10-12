@@ -10,6 +10,7 @@ The native companion, live discovery integration, independent ranking, conservat
 
 - A draggable sage Mochi character, matching the supplied SVG artwork.
 - Click Mochi to open or close a compact listening-request card.
+- Optional favorite-artist setup with Last.fm autocomplete, up to three removable choices, and a heart button to edit them later.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
 - Listening text sent asynchronously to a local FastAPI backend, with validation and confirmation.
 - Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
@@ -51,6 +52,7 @@ Most source editing can be done in VS Code. Xcode provides the native project, b
 3. Build and run with **Command-R**.
 4. Click the music-note icon in the macOS menu bar to open the panel.
 5. Mochi appears near the bottom-right of your desktop on first launch. Click the character to open the listening-request card. If you previously hid it, click **Show Mochi** in the menu-bar panel.
+6. Choose one to three favorite artists, or **Skip for now**. Artist lookup uses the running local backend; Spotify login is not needed. Click the heart later to edit your choices.
 
 You can also build from the repository root:
 
@@ -129,6 +131,7 @@ Mochi breathes with a gentle change in body shape, blinks, and glances around, w
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
+- Use the **heart** to add/remove favorite artists. One is enough; choices save immediately on this Mac. Adding an artist triggers Mochi's squishy greeting. The setup card shrinks after three choices.
 - Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
 - Mood submissions show live matches, a setup/constraint message, or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
 - Use thumbs up/down to save taste feedback. Right-click the reset arrow and choose **Forget taste memory** to delete it. **Play matches** retries matching after connecting Spotify.
@@ -139,7 +142,7 @@ Mochi breathes with a gentle change in body shape, blinks, and glances around, w
 
 The companion stays above ordinary windows and joins desktop Spaces. Its card opens above the character when space permits, below it near the top edge, and stays within the display's usable area. If a remembered display is disconnected, Mochi moves back onto an available display. Spotify controls remain in the menu bar.
 
-The visible request summary lasts for the app session. Explicit feedback and recommendation contexts persist in the local backend's SQLite taste store; disposable provider metadata has a separate bounded cache. Character position and visibility stay in local app preferences. This version has one taste profile per local backend.
+The visible request summary lasts for the app session. Explicit feedback and recommendation contexts persist in the local backend's SQLite taste store; disposable provider metadata has a separate bounded cache. Favorite artists, setup completion, character position and visibility stay in local app preferences. New listening requests include your favorite artist names; they guide Last.fm candidate pools and receive a small ranking preference. **Surprise me** starts from those artists when set. **Forget taste memory** clears backend feedback/context and then native artist choices. This version has one feedback profile per local backend; native choices are per app installation.
 
 ## Find more songs like a recommendation
 
@@ -272,6 +275,14 @@ The native checks use mock responses to verify artist/version/ISRC matching, par
 backend/.venv/bin/python scripts/verify-similar-discovery.py
 ```
 
+To verify live artist autocomplete and favorite-based discovery with disposable storage:
+
+```bash
+backend/.venv/bin/python scripts/verify-artist-discovery.py --artist Drake --artist 'Frank Ocean'
+```
+
+The [artist setup probe](docs/artist-setup-validation.json) returned five recordings from those seed artists in 7.4 seconds, with no warnings, and rejected unknown BPM under strict filtering. Native checks cover skip/edit, saved choices, autocomplete cancellation, actual Add/Remove/Done buttons and card resizing. Relevance still needs listening and user feedback.
+
 The ranking evaluation defaults to clearly labeled fictional fixtures; [the discovery guide](docs/music-discovery.md) explains how to capture and manually judge real Last.fm candidates. Recorded smoke results are not a broad coverage or recommendation-accuracy claim.
 
 ## Project layout
@@ -304,7 +315,7 @@ The smaller authentication helpers are grouped by their role:
 
 Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
-`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, request state, and vector drawing of the supplied character. `MochiBackendClient.swift` sends listening/similar-song requests and first-party feedback to Python. `backend/main.py` defines the health, discovery and taste routes. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
+`MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, request state, and vector drawing of the supplied character. `MochiArtistPreferences.swift` owns the compact editor, saved artist choices and debounced autocomplete. `MochiBackendClient.swift` sends listening/similar-song requests, artist searches and first-party feedback to Python. `backend/main.py` defines the health, discovery, artist-search and taste routes. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
 
 ## Recommendation architecture
 

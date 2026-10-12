@@ -24,8 +24,10 @@ Mochi sends listening text from the native card to Python, interprets preference
 `POST /listening-request` accepts:
 
 ```json
-{"prompt": "relaxing music for studying"}
+{"prompt": "relaxing music for studying", "favorite_artists": ["Frank Ocean"]}
 ```
+
+`favorite_artists` is optional and contains up to three distinct, manually chosen artist names. Native preferences save those choices on the Mac; the backend uses them for this request's Last.fm pools and small ranking adjustments. `POST /artist-search` accepts `{"query":"Frank"}` and returns the same query plus up to five Last.fm artist names. Setup can be skipped and does not require Spotify login. See [favorite setup and acquisition](music-discovery.md#favorite-artist-setup) for limits and failure behavior.
 
 It returns HTTP 200:
 
@@ -77,4 +79,4 @@ Python runs separately from the macOS app. Mochi currently does not start or pac
 
 ## Next development step
 
-Live discovery, independent ranking, conservative Spotify resolution, queue playback and first-party taste memory are now implemented. See [music discovery](music-discovery.md) for the current contract and source-validation limits. Next, configure the Last.fm key, manually judge real candidate rankings and verify live account playback. Reliable musical measurements and learned ranking remain future work.
+Live discovery, favorite-artist setup, independent ranking, conservative Spotify resolution, optional desktop playback and first-party taste memory are implemented. The Last.fm key and live artist source checks are configured/verified. See [music discovery](music-discovery.md) for contracts and source-validation limits. Next, manually judge artist-seeded session rankings and verify live account playback. Reliable musical measurements and learned ranking remain future work.

@@ -37,7 +37,7 @@ For the explicit fictional offline demo, set `MOCHI_CATALOG_MODE=sample` and res
 Your request
   → POST /listening-request
   → explicit constraints + optional local semantic interpretation
-  → up to two Last.fm tag pools + similar tracks from an available favorite
+  → favorite-artist/related-artist pools + up to two session tags + a remembered recording seed
   → deduplicate canonical artist/title identities
   → independent tags/descriptions + optional verified tempo lookup
   → strict requirements, relevance ranking, taste adjustments
@@ -48,9 +48,23 @@ Your request
   → explicit feedback influences later requests
 ```
 
-The initial tag vocabulary is small and inspectable in `backend/discovery.py`. It recognizes genres, instruments and several session cues. Unknown prompts ask for a genre or instrument instead of inventing a meaning. “Surprise me” uses pop and indie pools. The broad catalog remains discoverable beyond cached songs, but this is not exhaustive Spotify coverage. Tag-top-track pools favor familiar recordings and can miss niche or very recent music.
+The initial tag vocabulary is small and inspectable in `backend/discovery.py`. It recognizes genres, instruments and several session cues. With no artist setup or remembered recording, unknown prompts ask for a genre or instrument. “Surprise me” uses your chosen artist pools when set, or pop/indie otherwise. The broad catalog remains discoverable beyond cached songs, but this is not exhaustive Spotify coverage. Provider top-track pools can miss niche or very recent music.
 
-Each request acquires at most 65 candidates and enriches details for at most 12, interleaving the two tag pools. HTTP calls have four-second timeouts, discovery has a 20-second budget, and provider rate-limit cooldowns are shared. Failures can produce partial results with warnings. One local discovery request runs at a time. Ranking runs outside the API event loop. Candidate embeddings are retained only in a small in-memory LRU of eight catalogs; no vectors are stored on disk.
+Each request retains at most 65 candidates and enriches details for at most 12. Candidate pools get a turn in round-robin order, so one source cannot occupy the entire limit. HTTP calls have four-second timeouts, acquisition has a 12-second limit within discovery's 20-second budget, and provider rate-limit cooldowns are shared. Acquisition timeout preserves completed pools; failures can produce partial results with warnings. One local discovery request runs at a time. Ranking runs outside the API event loop. Candidate embeddings are retained only in a small in-memory LRU of eight catalogs; no vectors are stored on disk.
+
+## Favorite-artist setup
+
+On first opening, the compact card asks **Who do you like listening to?** One artist is enough, three are optional, and **Skip for now** remembers that choice. The heart button edits choices anytime. Artist autocomplete waits 350 ms after typing, searches Last.fm through the local backend, and returns at most five names. Query changes and closing the editor cancel work and invalidate late replies. Adding a choice triggers Mochi's existing squishy greeting; Reduce Motion remains supported. Chips can be removed; the editor shrinks once three artists are selected.
+
+Native UserDefaults saves only the chosen artist names and setup completion. No sign-in or cloud profile is needed. These explicit first-party choices are separate from backend SQLite feedback and replaceable provider metadata. Each new `POST /listening-request` may include `favorite_artists`, a validated list of up to three distinct names. Empty/duplicate/oversized names, control characters and extra Spotify payload fields are rejected. New-request reset retains choices. The app's **Forget taste memory** clears them after the backend acknowledges feedback/context deletion; `DELETE /taste` alone only clears backend storage.
+
+`POST /artist-search` accepts `{"query":"Drake"}` and returns `{"query":"Drake","artists":["Drake"]}` (up to five results). It uses Last.fm's [artist.search](https://www.last.fm/api/show/artist.search); the API key remains in backend configuration. Missing configuration, provider errors and timeouts show messages; users can still skip setup.
+
+For discovery, each chosen artist contributes up to ten recordings from [artist.getTopTracks](https://www.last.fm/api/show/artist.getTopTracks), ordered by Last.fm popularity. The first two favorites can contribute up to two unique neighbors total through [artist.getSimilar](https://www.last.fm/api/show/artist.getSimilar); their top-track pools add discovery beyond the favorites. Unexpected artist corrections are rejected. No artist genre is promoted into a recording-level tag or measured feature. Up to two prompt-tag pools (15 tracks each when artists are set, 25 otherwise) and an available remembered liked recording complete acquisition.
+
+Session requests still need text relevance before a small 0.06 favorite-artist adjustment; explicit dislikes and hard requirements take precedence. Broad artist-seeded requests such as **Surprise me** have no session description to compare, so they use taste adjustments and provider pool order with `method: "none"`, retaining all hard filters. This is an understandable heuristic baseline, not a trained taste network. **More like this** keeps its recording-specific seed and original context rather than switching to current onboarding artists. In fictional sample mode, artist setup does not alter the fixture selections.
+
+Spotify supplies playback and optional deterministic recording matching. Artist setup does not import Spotify top artists or playlists; dropping a URL is not an implemented playlist ingestion path. Automatic Spotify matching and provider release requirements retain their existing limits.
 
 ## More like this
 
@@ -123,7 +137,7 @@ Allowed events: `like`, `dislike`, `select`, `replay`. The recording must belong
 
 ## Storage and release boundaries
 
-Provider responses and derived canonical metadata share a 40 MB SQLite cache, bounded by physical database pages. Expired and least recently used entries are removed. HTTP `Cache-Control`, `Age` and `Expires` govern reuse, capped at one day; absent freshness headers, `no-cache`, `private`, or `no-store` mean no reuse. API keys appear only in outbound HTTPS parameters and hashed cache identities, never in logs or API responses. The bounded evaluation capture adds at most 2 MB; in-memory candidate data is also bounded. The similar-song smoke check replaces one report capped at 16 KB. Avoid accumulating additional exported provider snapshots.
+Provider responses and derived canonical metadata share a 40 MB SQLite cache, bounded by physical database pages. Expired and least recently used entries are removed. HTTP `Cache-Control`, `Age` and `Expires` govern reuse, capped at one day; absent freshness headers, `no-cache`, `private`, or `no-store` mean no reuse. API keys appear only in outbound HTTPS parameters and hashed cache identities, never in logs or API responses. Native preferences retain at most three names of 200 Unicode scalars each, with no provider biographies/images or derived graph. The bounded evaluation capture adds at most 2 MB; in-memory candidate data is also bounded. The similar-song and artist probes each replace one report capped at 16 KB; the artist report retains counts/timings rather than returned recording metadata. Avoid accumulating additional exported provider snapshots.
 
 [Last.fm's terms](https://www.last.fm/api/tos) impose a 100 MB storage allowance, caching requirements, noncommercial default use and prior approval for public-facing use. This implementation remains a private hobby/testing project until those permissions are resolved. Links attribute Last.fm in the native result card. Spotify is used for deterministic matching and playback, consistent with its [developer policy](https://developer.spotify.com/policy); Spotify content is not ingested into Mochi's ML model. The beta remains limited by [Spotify development-mode quotas](https://developer.spotify.com/documentation/web-api/concepts/quota-modes), currently five authenticated users.
 
@@ -137,7 +151,10 @@ bash scripts/test-playback.sh
 bash scripts/test-companion.sh /private/tmp/MochiDiscoveryPreview
 backend/.venv/bin/python scripts/validate-discovery.py --output docs/provider-validation.json
 backend/.venv/bin/python scripts/verify-similar-discovery.py --output docs/similar-discovery-validation.json
+backend/.venv/bin/python scripts/verify-artist-discovery.py --artist Drake --artist 'Frank Ocean'
 ```
+
+The [artist setup source/API probe](artist-setup-validation.json) on October 12 found Drake in five autocomplete results in 265 ms. An artist-seeded **Surprise me** request returned five recordings from Drake/Frank Ocean in 7.4 seconds, with no warnings. A strict BPM request returned no recordings because tempo remained unknown. The probe used disposable cache/taste databases and did not change the app's choices or Spotify playback. Native checks cover persisted/removed choices, malformed replies, debounce cancellation and late-query responses; actual UI checks exercise Skip, typing, Add, Remove, Done and card resize. These are contract checks; relevance still needs user listening judgments.
 
 Deterministic checks cover provider errors, invalid/oversized responses, missing features, strict filtering, deduplication, physical cache limits/expiry, rate-limit cooldowns, persistence, feedback context/idempotency/deletion, nullable Swift decoding, independent Spotify resolution, partial playback, cancellation and stale responses. Similar-song checks cover original-context validation/expiry/deletion, spoofed names and extra fields, seed/previous-batch exclusion, strict unknown BPM, no unrelated fallback, preserved drafts/results and disconnect/reset during pending refinement. Native UI checks render the compact card, verify accessible song menus and display the selected seed. Tests use fictional fixtures and fake tokens; they do not alter real Spotify playback.
 
