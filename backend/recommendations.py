@@ -11,7 +11,7 @@ import httpx
 from starlette.concurrency import run_in_threadpool
 
 from discovery import discover, discovery_tags
-from music import CatalogTrack, normalized
+from music import CatalogTrack, artist_key, identity_key, normalized
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats
 from selection import SongSelection, SongSelector
 from storage import ProviderCache, TasteStore
@@ -32,16 +32,26 @@ class RecommendationService:
         await self.client.aclose()
         self.cache.close(); self.taste.close()
 
-    async def recommend(self, prompt, intent):
+    def similar_context(self, request_id, track_id, title, artist):
+        prompt, previous = self.taste.recommendation_context(request_id)
+        if (track_id != "lastfm-" + identity_key(title, artist)
+            or previous.get(track_id) != artist_key(artist)):
+            raise ValueError("Choose a song from that recommendation.")
+        # Names came from a prior independent Mochi recommendation. Verify them
+        # against stored opaque keys; never accept Spotify metadata or features.
+        seed = CatalogTrack(id=track_id, title=title, artist=artist, description="User-selected Last.fm discovery seed.")
+        return prompt, seed, tuple(previous)
+
+    async def recommend(self, prompt, intent, *, seed=None, exclude=()):
         if intent.clarification:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message=intent.clarification)
         # This is a local single-user backend; bound concurrent provider work.
         if self.request_lock.locked():
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message="Another discovery request is finishing. Try again shortly.")
         async with self.request_lock:
-            return await self._recommend(prompt, intent)
+            return await self._recommend(prompt, intent, seed=seed, exclude=exclude)
 
-    async def _recommend(self, prompt, intent):
+    async def _recommend(self, prompt, intent, *, seed=None, exclude=()):
         if not self.settings.lastfm_key:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
                 message="Add LASTFM_API_KEY to backend/.env, then restart the backend.")
@@ -54,10 +64,12 @@ class RecommendationService:
         tracks, warnings = [], []
         try:
             async with asyncio.timeout(20):
-                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites)
+                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed)
+                tracks = [track for track in tracks if track.id not in exclude]
                 # Interleave pool labels so one provider's first genre does not
                 # consume every detail lookup. We enrich at most 12 recordings.
-                ordered = sorted(range(len(tracks)), key=lambda i: (i % 25, i // 25))[:12]
+                ordered = (list(range(len(tracks))) if seed is not None else
+                           sorted(range(len(tracks)), key=lambda i: (i % 25, i // 25)))[:12]
                 for index in ordered:
                     try: tracks[index] = await self.lastfm.tags(tracks[index])
                     except ProviderError as error: warnings.append(str(error))
@@ -70,7 +82,8 @@ class RecommendationService:
             warnings.append("Discovery reached its time limit; showing the candidates available so far.")
         if not tracks:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
-                message=warnings[0] if warnings else "No songs found. Try another genre.", warnings=list(dict.fromkeys(warnings)))
+                message=warnings[0] if warnings else ("No new similar songs found. Try another song." if seed is not None else
+                    "No songs found. Try another genre."), warnings=list(dict.fromkeys(warnings)))
         # Mood adjectives remain subjective ranking cues. Only an explicit
         # 'low/high energy' requirement demands verified energy metadata.
         # Sample-mode behavior is unchanged.

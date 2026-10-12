@@ -17,9 +17,10 @@ from recommendations import RecommendationService
 from settings import Settings
 from intent import interpret_request, IntentResult
 from selection import SongSelector
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from main import app
+from selection import SongSelection
 import uuid
 
 def track(title="Fixture Piano", artist="Fixture Artist", **kwargs):
@@ -74,7 +75,21 @@ class StorageChecks(unittest.TestCase):
         self.assertNotIn(candidate.title.encode(), path.read_bytes())
         self.now[0] += 31 * 86400
         with self.assertRaises(ValueError): taste.feedback("old", "request", candidate.id, "like")
+        with self.assertRaises(LookupError): taste.recommendation_context("request")
         taste.clear(); self.assertEqual(taste.snapshot()["tracks"], {})
+
+    def test_similar_context_survives_restart_without_provider_metadata(self):
+        path = Path(self.directory) / "context.sqlite3"
+        taste = TasteStore(path)
+        taste.save_request("request", "gentle piano 80-100 BPM", [track()])
+        taste.close()
+        taste = TasteStore(path); self.addCleanup(taste.close)
+        prompt, identifiers = taste.recommendation_context("request")
+        self.assertEqual(prompt, "gentle piano 80-100 BPM")
+        self.assertIn(track().id, identifiers)
+        self.assertNotIn(track().title.encode(), path.read_bytes())
+        taste.clear()
+        with self.assertRaises(LookupError): taste.recommendation_context("request")
 
 
 class ProviderChecks(unittest.IsolatedAsyncioTestCase):
@@ -242,6 +257,56 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         self.reply({"tracks": None})
         with self.assertRaises(ProviderError): await self.lastfm.top_tracks("jazz")
 
+    async def test_explicit_seed_uses_similar_pool_and_excludes_previous_batch_and_dislikes(self):
+        seed, previous, disliked = track(), track("Previous Piano"), track("Disliked Piano")
+        seen = []
+        async def handle(request):
+            seen.append(dict(request.url.params))
+            if request.url.params["method"] == "track.getTopTags":
+                return httpx.Response(200, json={"toptags": {"tag": [{"name": "piano"}]}})
+            rows = [{"name": title, "artist": "Fixture Artist"} for title in
+                (seed.title, previous.title, "New Piano", "New Piano", disliked.title)]
+            return httpx.Response(200, json={"similartracks": {"track": rows}})
+        service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(self.directory)/"similar"),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+        self.addAsyncCleanup(service.close); service.http.interval = 0
+        request_id = str(uuid.uuid4())
+        service.taste.save_request(request_id, "piano", [seed, previous, disliked])
+        service.taste.feedback(str(uuid.uuid4()), request_id, disliked.id, "dislike")
+        prompt, verified, excluded = service.similar_context(request_id, seed.id, seed.title, seed.artist)
+        self.assertEqual(service.cache.connection.execute("SELECT COUNT(*) FROM responses").fetchone()[0], 0)
+        with self.assertRaises(ValueError): service.similar_context(request_id, seed.id, "Spoofed Piano", seed.artist)
+        with patch("selection.get_matcher", return_value=None):
+            result = await service.recommend(prompt, IntentResult(), seed=verified, exclude=excluded)
+            self.assertEqual([row.title for row in result.tracks], ["New Piano"])
+            self.assertNotEqual(result.request_id, request_id)
+            self.assertEqual(seen[0]["method"], "track.getSimilar")
+            self.assertEqual(seen[0]["track"], seed.title)
+            self.assertEqual(seen[0]["limit"], "50")
+            self.assertNotIn("tag.getTopTracks", [row["method"] for row in seen])
+            strict = await service.recommend(prompt, IntentResult(bpm_min=80, bpm_max=100), seed=verified, exclude=excluded)
+            self.assertEqual(strict.tracks, [])
+
+    async def test_similar_failures_do_not_fall_back_to_unrelated_songs(self):
+        self.replies.append(httpx.Response(503))
+        candidates, warnings = await discover("piano", self.lastfm, seed=track())
+        self.assertEqual(candidates, [])
+        self.assertTrue(warnings)
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.requests[0].url.params["method"], "track.getSimilar")
+
+    async def test_cancelled_similar_request_releases_service_lock(self):
+        async def slow(request):
+            await asyncio.sleep(10)
+            return httpx.Response(200, json={})
+        service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(self.directory)/"cancel-similar"),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(slow)))
+        self.addAsyncCleanup(service.close)
+        task = asyncio.create_task(service.recommend("piano", IntentResult(), seed=track()))
+        await asyncio.sleep(0.01); task.cancel()
+        with self.assertRaises(asyncio.CancelledError): await task
+        self.assertFalse(service.request_lock.locked())
+
 
 class LiveRankingChecks(unittest.TestCase):
     def test_missing_features_and_dislike_cannot_be_overridden(self):
@@ -287,6 +352,37 @@ class DiscoveryAPIChecks(unittest.TestCase):
         self.assertEqual(self.client.post("/feedback", json={**body, "event": "skip"}).status_code, 422)
         self.assertEqual(self.client.delete("/taste").json(), {"status": "ok"})
         self.assertEqual(self.client.app.state.recommendations.taste.snapshot()["tracks"], {})
+
+    def test_similar_route_recovers_original_constraints_and_validates_identity(self):
+        service = self.client.app.state.recommendations
+        candidate, request_id = track(), str(uuid.uuid4())
+        prompt = "piano no vocals 80-100 BPM"
+        service.taste.save_request(request_id, prompt, [candidate])
+        body = {"request_id": request_id, "track_id": candidate.id, "title": candidate.title, "artist": candidate.artist}
+        with patch.object(service, "recommend", new_callable=AsyncMock,
+                          return_value=SongSelection(catalog_kind="lastfm_live", method="none", tracks=[])) as recommend:
+            response = self.client.post("/more-like-this", json=body)
+            self.assertEqual(response.status_code, 200)
+            result = response.json()
+            self.assertEqual(result["received_prompt"], prompt)
+            self.assertEqual(result["intent"]["vocals"], False)
+            self.assertEqual(result["intent"]["bpm_min"], 80)
+            self.assertEqual(result["intent"]["bpm_max"], 100)
+            self.assertEqual(recommend.call_args.kwargs["seed"].id, candidate.id)
+            self.assertIn(candidate.id, recommend.call_args.kwargs["exclude"])
+            for changes in ({"title": "Wrong title"}, {"artist": "Wrong artist"}, {"track_id": "sample-fixture"},
+                            {"prompt": "drop requirements"}, {"spotify_payload": {}}, {"bpm": 90}):
+                self.assertEqual(self.client.post("/more-like-this", json={**body, **changes}).status_code, 422)
+            self.assertEqual(recommend.call_count, 1)
+        self.client.delete("/taste")
+        self.assertEqual(self.client.post("/more-like-this", json=body).status_code, 409)
+
+    def test_similar_route_is_unavailable_in_fictional_mode(self):
+        from dataclasses import replace
+        self.client.app.state.settings = replace(self.client.app.state.settings, mode="sample")
+        response = self.client.post("/more-like-this", json={"request_id": str(uuid.uuid4()),
+            "track_id": track().id, "title": track().title, "artist": track().artist})
+        self.assertEqual(response.status_code, 409)
 
 
 if __name__ == "__main__": unittest.main()

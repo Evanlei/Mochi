@@ -43,7 +43,15 @@ def discovery_tags(prompt):
     return [tag for _, tag in sorted(hits)[:2]]
 
 
-async def discover(prompt, lastfm, *, favorites=()):
+async def discover(prompt, lastfm, *, favorites=(), seed=None):
+    if seed is not None:
+        # An explicit choice replaces generic pools. Do not substitute unrelated
+        # popular tracks when this recording has no similar-track coverage.
+        try:
+            pool = await lastfm.similar(seed, limit=50)
+            return list({track.id: track for track in pool if track.id != seed.id}.values())[:50], []
+        except ProviderError as error:
+            return [], [str(error)]
     tags = discovery_tags(prompt)
     if not tags and not favorites:
         return [], ["Add a genre or instrument, such as jazz, piano, indie, or electronic."]

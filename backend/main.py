@@ -42,6 +42,36 @@ class ListeningResponse(BaseModel):
     clarification: str | None = None
     selection: SongSelection
 
+class SimilarRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    request_id: UUID
+    track_id: str = Field(pattern=r"^lastfm-[0-9a-f]{64}$")
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+
+@app.post("/more-like-this", response_model=ListeningResponse)
+async def more_like_this(request: SimilarRequest):
+    if app.state.settings.mode != "live":
+        raise HTTPException(status_code=409, detail="More like this requires live discovery.")
+    service = app.state.recommendations
+    try:
+        prompt, seed, previous = await run_in_threadpool(service.similar_context,
+            str(request.request_id), request.track_id, request.title, request.artist)
+    except LookupError:
+        raise HTTPException(status_code=409, detail="This recommendation has expired. Send a new listening request.") from None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Choose a song from that recommendation.") from None
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
+    parsed = await run_in_threadpool(interpret_request, prompt)
+    try:
+        selection = await service.recommend(prompt, parsed, seed=seed, exclude=previous)
+    except (OSError, ValueError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
+    return ListeningResponse(received_prompt=prompt,
+        intent=ListeningIntent(vocals=parsed.vocals, energy=parsed.energy, bpm_min=parsed.bpm_min, bpm_max=parsed.bpm_max),
+        clarification=parsed.clarification, selection=selection)
+
 @app.post("/listening-request", response_model=ListeningResponse)
 async def receive_listening_request(request: ListeningRequest):
     parsed = await run_in_threadpool(interpret_request, request.prompt)

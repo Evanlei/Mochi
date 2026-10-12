@@ -104,6 +104,15 @@ class TasteStore:
             self.connection.execute("INSERT INTO feedback VALUES (?,?,?,?,?,?)", (event_id, request_id, track_id, tracks[track_id], event, self.clock()))
             self.connection.execute("DELETE FROM feedback WHERE event_id IN (SELECT event_id FROM feedback ORDER BY created DESC, rowid DESC LIMIT -1 OFFSET 10000)")
 
+    def recommendation_context(self, request_id):
+        """Recover our prompt/opaque keys without retaining provider names."""
+        with self.lock:
+            row = self.connection.execute("SELECT prompt, tracks FROM requests WHERE id=? AND created>=?",
+                (request_id, self.clock() - 30 * 86400)).fetchone()
+        if not row:
+            raise LookupError("This recommendation has expired. Send a new listening request.")
+        return row[0], json.loads(row[1])
+
     def snapshot(self):
         with self.lock:
             rows = self.connection.execute("SELECT track_id, artist_key, event, created FROM feedback ORDER BY created, rowid").fetchall()
