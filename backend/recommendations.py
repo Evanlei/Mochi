@@ -42,20 +42,21 @@ class RecommendationService:
         seed = CatalogTrack(id=track_id, title=title, artist=artist, description="User-selected Last.fm discovery seed.")
         return prompt, seed, tuple(previous)
 
-    async def recommend(self, prompt, intent, *, seed=None, exclude=()):
+    async def recommend(self, prompt, intent, *, seed=None, exclude=(), artists=()):
         if intent.clarification:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message=intent.clarification)
         # This is a local single-user backend; bound concurrent provider work.
         if self.request_lock.locked():
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message="Another discovery request is finishing. Try again shortly.")
         async with self.request_lock:
-            return await self._recommend(prompt, intent, seed=seed, exclude=exclude)
+            return await self._recommend(prompt, intent, seed=seed, exclude=exclude, artists=artists)
 
-    async def _recommend(self, prompt, intent, *, seed=None, exclude=()):
+    async def _recommend(self, prompt, intent, *, seed=None, exclude=(), artists=()):
         if not self.settings.lastfm_key:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
                 message="Add LASTFM_API_KEY to backend/.env, then restart the backend.")
         taste = self.taste.snapshot()
+        taste["favorite_artists"] = {artist_key(name) for name in artists}
         favorites = []
         for identifier in taste["favorites"]:
             cached = self.cache.get("track:" + identifier)
@@ -64,12 +65,11 @@ class RecommendationService:
         tracks, warnings = [], []
         try:
             async with asyncio.timeout(20):
-                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed)
+                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed, artists=artists)
                 tracks = [track for track in tracks if track.id not in exclude]
                 # Interleave pool labels so one provider's first genre does not
                 # consume every detail lookup. We enrich at most 12 recordings.
-                ordered = (list(range(len(tracks))) if seed is not None else
-                           sorted(range(len(tracks)), key=lambda i: (i % 25, i // 25)))[:12]
+                ordered = list(range(len(tracks)))[:12]
                 for index in ordered:
                     try: tracks[index] = await self.lastfm.tags(tracks[index])
                     except ProviderError as error: warnings.append(str(error))
@@ -100,7 +100,10 @@ class RecommendationService:
         # Keep the complete request and add the inspected retrieval vocabulary:
         # e.g. "Focus" also means the "study" pool when lexical fallback runs.
         ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
-        selection = await run_in_threadpool(self.selectors[signature].select, ranking_prompt, intent, taste=taste)
+        broad_request = seed is None and bool(artists) and normalized(prompt) in {
+            "surprise me", "anything", "any music", "music", "my favorites", "play my favorites"}
+        selection = await run_in_threadpool(self.selectors[signature].select, ranking_prompt, intent,
+                                           taste=taste, allow_unmatched=broad_request)
         selection.catalog_kind = "lastfm_live"
         selection.warnings = list(dict.fromkeys(warnings))
         if selection.tracks:

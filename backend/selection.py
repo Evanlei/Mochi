@@ -81,7 +81,7 @@ class SongSelector:
             raise ValueError("Invalid embedding")
         return tuple(value / norm for value in values)
 
-    def select(self, prompt, intent: IntentResult, *, use_semantic=True, encoder=None, limit=5, taste=None):
+    def select(self, prompt, intent: IntentResult, *, use_semantic=True, encoder=None, limit=5, taste=None, allow_unmatched=False):
         if intent.clarification:
             return SongSelection(catalog_kind=self.catalog_kind, method="none", tracks=[], message="Clarify your request before choosing tracks.")
         taste = taste or {"tracks": {}, "artists": {}, "recent": []}
@@ -112,12 +112,13 @@ class SongSelector:
         candidates = []
         for index in eligible:
             similarity = scores[index]
-            if (method == "semantic" and similarity < threshold) or (method == "lexical" and similarity <= threshold and not constrained):
+            if not allow_unmatched and ((method == "semantic" and similarity < threshold) or (method == "lexical" and similarity <= threshold and not constrained)):
                 continue
             track = self.tracks[index]
             bonus = 0.08 if not intent.energy_locked and intent.energy == track.energy else 0.0
             personal = 0.12 * max(0, taste["tracks"].get(track.id, 0))
             personal += max(-0.08, min(0.08, 0.04 * taste["artists"].get(artist_key(track.artist), 0)))
+            personal += 0.06 if artist_key(track.artist) in taste.get("favorite_artists", ()) else 0
             personal -= min(0.15, 0.03 * taste["recent"].count(track.id))
             values = track.model_dump()
             if self.catalog_kind == "fictional_sample": values["source"] = "fictional_sample"

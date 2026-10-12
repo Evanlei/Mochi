@@ -1,6 +1,8 @@
 """Small, inspectable discovery vocabulary; the model never invents song names."""
 
 import re
+import asyncio
+from itertools import zip_longest
 
 from music import CatalogTrack, normalized
 from providers import ProviderError
@@ -43,7 +45,7 @@ def discovery_tags(prompt):
     return [tag for _, tag in sorted(hits)[:2]]
 
 
-async def discover(prompt, lastfm, *, favorites=(), seed=None):
+async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
     if seed is not None:
         # An explicit choice replaces generic pools. Do not substitute unrelated
         # popular tracks when this recording has no similar-track coverage.
@@ -53,18 +55,43 @@ async def discover(prompt, lastfm, *, favorites=(), seed=None):
         except ProviderError as error:
             return [], [str(error)]
     tags = discovery_tags(prompt)
-    if not tags and not favorites:
+    if not tags and not favorites and not artists:
         return [], ["Add a genre or instrument, such as jazz, piano, indie, or electronic."]
     tracks, warnings = {}, []
     pools = []
-    for tag in tags:
-        try: pools.append(await lastfm.top_tracks(tag))
+    async def acquire(call):
+        try: pools.append(await call)
         except ProviderError as error: warnings.append(str(error))
-    if favorites:
-        try: pools.append(await lastfm.similar(favorites[-1]))
-        except ProviderError as error: warnings.append(str(error))
-    for pool in pools:
-        for track in pool:
+
+    try:
+        # Reserve part of the service's 20-second budget for recording tags.
+        # A timeout preserves already completed pools rather than losing them.
+        async with asyncio.timeout(12):
+            for artist in artists[:3]:
+                await acquire(lastfm.artist_tracks(artist, limit=10))
+            for tag in tags:
+                await acquire(lastfm.top_tracks(tag, limit=15 if artists else 25))
+            related, chosen = [], {normalized(name) for name in artists}
+            for artist in artists[:2]:
+                try: names = await lastfm.similar_artists(artist, limit=3)
+                except ProviderError as error:
+                    warnings.append(str(error)); continue
+                for name in names:
+                    if normalized(name) not in chosen:
+                        related.append(name); chosen.add(normalized(name))
+                        if len(artists) > 1 or len(related) == 2: break
+                if len(related) == 2: break
+            for name in related[:2]:
+                await acquire(lastfm.artist_tracks(name, limit=10))
+            if favorites:
+                await acquire(lastfm.similar(favorites[-1]))
+    except TimeoutError:
+        warnings.append("Some discovery sources took too long; using the completed pools.")
+    # Give each pool a turn so favorites/related artists/session tags all have
+    # room inside the 65-recording cap. Never attach an artist's genre to a song.
+    for group in zip_longest(*pools):
+        for track in group:
+            if track is None: continue
             if track.id in tracks:
                 previous = tracks[track.id]
                 merged = tuple(dict.fromkeys(previous.tags + track.tags))

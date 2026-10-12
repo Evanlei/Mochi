@@ -158,7 +158,8 @@ class LastFM:
 
     async def artist_tracks(self, artist, *, limit=10):
         value, ttl = await self.request("artist.getTopTracks", artist=artist, autocorrect=0, limit=limit)
-        tracks = self.parse_tracks(section(value, "toptracks").get("track", []), (), ttl)
+        tracks = self.parse_tracks(section(value, "toptracks").get("track", []), (), ttl,
+                                   description="Popular tracks on Last.fm.")
         # Reject an unexpected correction/identity rather than silently changing
         # a user's favorite. Provider popularity only selects this candidate pool.
         return [track for track in tracks if normalized(track.artist) == normalized(artist)][:limit]
@@ -167,7 +168,7 @@ class LastFM:
         value, ttl = await self.request("track.getSimilar", track=track.title, artist=track.artist, autocorrect=0, limit=limit)
         return self.parse_tracks(section(value, "similartracks").get("track", []), (), ttl)
 
-    def parse_tracks(self, rows, tags, ttl):
+    def parse_tracks(self, rows, tags, ttl, *, description="Related listening patterns on Last.fm."):
         result = []
         for row in entries(rows):
             if not isinstance(row, dict): continue
@@ -177,7 +178,7 @@ class LastFM:
             identifier = "lastfm-" + identity_key(title, artist)
             try:
                 track = CatalogTrack(id=identifier, title=title, artist=artist,
-                    tags=tags, description="Community tags: " + ", ".join(tags) if tags else "Related listening patterns on Last.fm.",
+                    tags=tags, description="Community tags: " + ", ".join(tags) if tags else description,
                     mbid=row.get("mbid") or None, source_url=lastfm_url(row.get("url")))
             except ValueError:
                 continue

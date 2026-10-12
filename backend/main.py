@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from typing import Annotated, Literal
 from intent import interpret_request
 from selection import SongSelection, get_selector
 from contextlib import asynccontextmanager
@@ -9,6 +9,10 @@ from recommendations import RecommendationService
 from settings import Settings
 from starlette.concurrency import run_in_threadpool
 import sqlite3
+import asyncio
+import unicodedata
+from music import normalized
+from providers import ProviderError
 
 @asynccontextmanager
 async def lifespan(app):
@@ -26,9 +30,38 @@ def health_check():
     return {"status": "ok"}
 
 class ListeningRequest(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     prompt: str = Field(min_length=1, max_length=500)
+    favorite_artists: list[Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
+
+    @field_validator("favorite_artists")
+    @classmethod
+    def usable_artists(cls, names):
+        if any(not normalized(name) or any(unicodedata.category(ch) in {"Cc", "Cs"} for ch in name) for name in names):
+            raise ValueError("Use artist names without control characters")
+        if len({normalized(name) for name in names}) != len(names):
+            raise ValueError("Choose each artist once")
+        return names
+
+class ArtistSearch(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    query: str = Field(min_length=1, max_length=100)
+
+@app.post("/artist-search")
+async def search_artists(request: ArtistSearch):
+    if not normalized(request.query) or any(unicodedata.category(ch) in {"Cc", "Cs"} for ch in request.query):
+        raise HTTPException(status_code=422, detail="Enter an artist name.")
+    try:
+        async with asyncio.timeout(8):
+            names = await app.state.recommendations.lastfm.search_artists(request.query)
+        return {"query": request.query, "artists": names}
+    except ProviderError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Artist search took too long. Try again.") from None
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="Artist search storage is unavailable.") from None
 
 class ListeningIntent(BaseModel):
     vocals: bool | None
@@ -79,7 +112,7 @@ async def receive_listening_request(request: ListeningRequest):
         if app.state.settings.mode == "sample":
             selection = get_selector().select(request.prompt, parsed)
         else:
-            selection = await app.state.recommendations.recommend(request.prompt, parsed)
+            selection = await app.state.recommendations.recommend(request.prompt, parsed, artists=request.favorite_artists)
     except (OSError, ValueError, sqlite3.Error):
         detail = "Sample catalog unavailable. Restart the backend after checking the catalog." if app.state.settings.mode == "sample" else "Music discovery storage is unavailable. Check backend/.data and restart the backend."
         raise HTTPException(status_code=503, detail=detail) from None

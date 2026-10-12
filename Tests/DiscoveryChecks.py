@@ -130,6 +130,7 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result[0].bpm)
         self.assertIsNone(result[0].vocals)
         self.assertEqual(self.requests[-1].url.params["autocorrect"], "0")
+        self.assertEqual(result[0].tags, ())
         self.reply({"results": {"artistmatches": []}})
         with self.assertRaises(ProviderError): await self.lastfm.search_artists("broken")
 
@@ -177,6 +178,64 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(discovery_tags("avoid metal, piano instead"), ["piano"])
         self.assertEqual(discovery_tags("qwerty"), [])
         self.assertEqual(discovery_tags("Surprise me"), ["pop", "indie"])
+
+    async def test_favorite_artist_pools_are_balanced_bounded_and_not_fake_tags(self):
+        provider = AsyncMock()
+        provider.artist_tracks.side_effect = lambda name, **kw: [track(f"Hit {i}", name) for i in range(10)]
+        provider.similar_artists.return_value = ["Related Artist", "Other Neighbor", "Fixture Artist"]
+        provider.top_tracks.return_value = [track(f"Piano {i}", "Session Artist") for i in range(15)]
+        result, warnings = await discover("piano", provider, artists=["Fixture Artist", "Second Favorite"])
+        self.assertEqual(warnings, [])
+        self.assertLessEqual(len(result), 65)
+        self.assertEqual(len(result), len({row.id for row in result}))
+        self.assertEqual({row.artist for row in result[:5]},
+            {"Fixture Artist", "Second Favorite", "Session Artist", "Related Artist", "Other Neighbor"})
+        provider.similar_artists.assert_any_await("Fixture Artist", limit=3)
+        # Partial failure does not replace favorites with invented recordings.
+        provider.artist_tracks.side_effect = ProviderError("Artist unavailable")
+        result, warnings = await discover("piano", provider, artists=["Fixture Artist"])
+        self.assertTrue(result); self.assertTrue(warnings)
+
+    async def test_artist_acquisition_timeout_keeps_finished_pools_and_cancellation_propagates(self):
+        provider = AsyncMock()
+        provider.artist_tracks.return_value = [track()]
+        async def slow(*args, **kwargs):
+            await asyncio.sleep(10)
+        provider.top_tracks.side_effect = slow
+        real_timeout = asyncio.timeout
+        with patch("discovery.asyncio.timeout", side_effect=lambda seconds: real_timeout(0.02)):
+            result, warnings = await discover("piano", provider, artists=["Fixture Artist"])
+        self.assertEqual(result, [track()]); self.assertTrue(warnings)
+        pending = asyncio.create_task(discover("piano", provider, artists=["Fixture Artist"]))
+        await asyncio.sleep(0.01); pending.cancel()
+        with self.assertRaises(asyncio.CancelledError): await pending
+
+    async def test_live_artist_profile_surprise_and_strict_filters(self):
+        seen = []
+        async def handle(request):
+            method = request.url.params["method"]; seen.append(method)
+            if method == "artist.getTopTracks":
+                value = {"toptracks": {"track": [{"name": "Favorite Hit", "artist": {"name": "Fixture Artist"}}]}}
+            elif method == "artist.getSimilar":
+                value = {"similarartists": {"artist": []}}
+            elif method == "track.getTopTags":
+                value = {"toptags": {"tag": [{"name": "piano"}]}}
+            else: value = {"tracks": {"track": []}}
+            return httpx.Response(200, json=value)
+        service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(self.directory)/"artists"),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+        self.addAsyncCleanup(service.close); service.http.interval = 0
+        with patch("selection.get_matcher", return_value=None):
+            result = await service.recommend("Surprise me", IntentResult(), artists=["Fixture Artist"])
+            self.assertEqual([row.title for row in result.tracks], ["Favorite Hit"])
+            self.assertIn("artist.getTopTracks", seen)
+            service.taste.feedback(str(uuid.uuid4()), result.request_id, result.tracks[0].id, "dislike")
+            excluded = await service.recommend("Surprise me", IntentResult(), artists=["Fixture Artist"])
+            self.assertEqual(excluded.tracks, [])
+            strict = await service.recommend("piano 80-100 BPM", IntentResult(bpm_min=80, bpm_max=100), artists=["Fixture Artist"])
+            self.assertEqual(strict.tracks, [])
+            unrelated = await service.recommend("metal", IntentResult(), artists=["Fixture Artist"])
+            self.assertEqual(unrelated.tracks, [])
 
     def recco_row(self, **changes):
         return {"id": "25c8ca63-5895-4572-84eb-a7040bc08c4d", "trackTitle": "Fixture Piano",
@@ -361,6 +420,25 @@ class DiscoveryAPIChecks(unittest.TestCase):
         self.assertEqual(result["selection"]["catalog_kind"], "lastfm_live")
         self.assertEqual(result["selection"]["tracks"], [])
         self.assertIn("LASTFM_API_KEY", result["selection"]["message"])
+
+    def test_artist_search_and_explicit_profile_contract(self):
+        service = self.client.app.state.recommendations
+        self.assertEqual(self.client.post("/artist-search", json={"query": "Piano"}).status_code, 503)
+        with patch.object(service.lastfm, "search_artists", new_callable=AsyncMock, return_value=["音楽", "Fixture Artist"]) as search:
+            result = self.client.post("/artist-search", json={"query": "  音楽  "})
+            self.assertEqual(result.json(), {"query": "音楽", "artists": ["音楽", "Fixture Artist"]})
+            search.assert_awaited_once_with("音楽")
+        for query in (" ", "x" * 101, "bad\nname", 123):
+            self.assertEqual(self.client.post("/artist-search", json={"query": query}).status_code, 422)
+        with patch.object(service, "recommend", new_callable=AsyncMock,
+                          return_value=SongSelection(catalog_kind="lastfm_live", method="none", tracks=[])) as recommend:
+            result = self.client.post("/listening-request", json={"prompt": "piano", "favorite_artists": [" 音楽 ", "Fixture Artist"]})
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(recommend.call_args.kwargs["artists"], ["音楽", "Fixture Artist"])
+            for names in ([""], ["bad\nname"], ["same", "SAME"], [1], ["a", "b", "c", "d"]):
+                self.assertEqual(self.client.post("/listening-request", json={"prompt": "piano", "favorite_artists": names}).status_code, 422)
+            self.assertEqual(self.client.post("/listening-request", json={"prompt": "piano", "spotify_payload": {}}).status_code, 422)
+            self.assertEqual(recommend.call_count, 1)
 
     def test_feedback_requires_context_is_idempotent_and_can_be_erased(self):
         request_id = str(uuid.uuid4())
