@@ -12,6 +12,7 @@ xcrun swiftc -parse-as-library -swift-version 5 \
     Mochi/Mochi/SpotifyAuthModel.swift \
     Mochi/Mochi/SpotifyPlaybackClient.swift \
     Mochi/Mochi/SpotifyPlaybackModel.swift \
+    Mochi/Mochi/LocalSpotifyClient.swift \
     Mochi/Mochi/SpotifySearchClient.swift \
     Mochi/Mochi/MochiBackendClient.swift \
     Mochi/Mochi/SpotifySearchModel.swift \

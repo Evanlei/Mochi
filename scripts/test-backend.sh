@@ -22,6 +22,7 @@ xcrun swiftc -parse-as-library -swift-version 5 -module-cache-path "$test_build_
     Mochi/Mochi/SpotifyAuthModel.swift \
     Mochi/Mochi/SpotifyPlaybackClient.swift \
     Mochi/Mochi/SpotifyPlaybackModel.swift \
+    Mochi/Mochi/LocalSpotifyClient.swift \
     Mochi/Mochi/SpotifySearchClient.swift \
     Mochi/Mochi/SpotifySearchModel.swift \
     Mochi/Mochi/MochiBackendClient.swift \

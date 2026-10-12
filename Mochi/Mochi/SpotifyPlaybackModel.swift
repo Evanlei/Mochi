@@ -8,13 +8,35 @@ final class SpotifyPlaybackModel: ObservableObject {
     @Published private(set) var isStale = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var lastUpdatedAt: Date?
+    @Published private(set) var usesDesktopPlayer = false
 
     private let client: SpotifyPlaybackClient
+    private let localClient: any LocalSpotifyControlling
+    private let defaults: UserDefaults?
     private var requestVersion = 0
     private var retryAfter: Date?
 
-    init(client: SpotifyPlaybackClient? = nil) {
+    init(client: SpotifyPlaybackClient? = nil, localClient: (any LocalSpotifyControlling)? = nil,
+         defaults: UserDefaults? = nil) {
         self.client = client ?? SpotifyPlaybackClient()
+        self.localClient = localClient ?? LocalSpotifyClient()
+        self.defaults = defaults
+        self.usesDesktopPlayer = defaults?.bool(forKey: "mochi.spotify.desktop-controls") ?? false
+    }
+
+    /// Permission is requested only after an explicit action, never by polling.
+    func enableDesktopControls() async {
+        guard !isBusy else { return }
+        reset()
+        usesDesktopPlayer = true
+        defaults?.set(true, forKey: "mochi.spotify.desktop-controls")
+        _ = await localOperation(refreshDelay: false) { try await self.localClient.authorize() }
+    }
+
+    func useWebPlayer() {
+        reset()
+        usesDesktopPlayer = false
+        defaults?.set(false, forKey: "mochi.spotify.desktop-controls")
     }
 
     func reset() {
@@ -28,11 +50,27 @@ final class SpotifyPlaybackModel: ObservableObject {
     }
 
     func canPerform(_ command: SpotifyPlaybackCommand) -> Bool {
-        let isCoolingDown = retryAfter.map { $0 > Date() } ?? false
+        let isCoolingDown = !usesDesktopPlayer && (retryAfter.map { $0 > Date() } ?? false)
         return !isBusy && !isStale && !isCoolingDown && state?.permits(command) == true
     }
 
     func refresh(using auth: SpotifyAuthModel) async {
+        if usesDesktopPlayer {
+            guard !isBusy else { return }
+            let version = requestVersion
+            isBusy = true; errorMessage = nil
+            defer { if version == requestVersion { isBusy = false } }
+            do {
+                let snapshot = try await localClient.fetchState()
+                try Task.checkCancellation()
+                guard version == requestVersion else { return }
+                update(snapshot)
+            } catch {
+                guard version == requestVersion, !(error is CancellationError) else { return }
+                report(error)
+            }
+            return
+        }
         guard auth.isConnected, !isBusy, readyToRequest() else { return }
         let version = requestVersion
         isBusy = true
@@ -54,6 +92,10 @@ final class SpotifyPlaybackModel: ObservableObject {
 
     func perform(_ command: SpotifyPlaybackCommand, using auth: SpotifyAuthModel) async {
         guard canPerform(command) else { return }
+        if usesDesktopPlayer {
+            _ = await localOperation { try await self.localClient.send(command) }
+            return
+        }
         let deviceID = state?.device?.id
         _ = await changePlayback(using: auth) { token in
             try await self.client.send(command, accessToken: token, deviceID: deviceID)
@@ -67,6 +109,13 @@ final class SpotifyPlaybackModel: ObservableObject {
     }
 
     func startTracks(uris: [String], using auth: SpotifyAuthModel) async -> Bool {
+        if usesDesktopPlayer {
+            guard uris.count == 1 else { errorMessage = LocalSpotifyError.queueUnsupported.localizedDescription; return false }
+            guard let uri = uris.first, LocalSpotifyClient.trackURI(from: uri) == uri else {
+                errorMessage = LocalSpotifyError.invalidTrack.localizedDescription; return false
+            }
+            return await localOperation { try await self.localClient.startTrack(uri: uri) }
+        }
         let version = requestVersion
         let connectionVersion = auth.connectionVersion
         return await changePlayback(using: auth) { token in
@@ -78,6 +127,34 @@ final class SpotifyPlaybackModel: ObservableObject {
             guard current?.device?.isRestricted != true else { throw SpotifyPlaybackError.forbidden }
             try await self.client.startTracks(uris: uris, accessToken: token, deviceID: current?.device?.id)
         }
+    }
+
+    private func localOperation(refreshDelay: Bool = true, operation: () async throws -> Void) async -> Bool {
+        guard usesDesktopPlayer, !isBusy else { return false }
+        let version = requestVersion
+        isBusy = true; errorMessage = nil
+        var accepted = false
+        defer { if version == requestVersion { isBusy = false } }
+        do {
+            try Task.checkCancellation()
+            try await operation()
+            accepted = true
+            try Task.checkCancellation()
+            guard version == requestVersion else { return false }
+            if refreshDelay { try await Task.sleep(for: .milliseconds(350)) }
+            guard version == requestVersion else { return false }
+            let snapshot = try await localClient.fetchState()
+            try Task.checkCancellation()
+            guard version == requestVersion else { return false }
+            update(snapshot)
+        } catch {
+            guard version == requestVersion, !(error is CancellationError) else { return false }
+            report(error)
+            if accepted && refreshDelay {
+                errorMessage = "Spotify desktop accepted the control, but Mochi couldn't refresh its result. \(error.localizedDescription)"
+            }
+        }
+        return accepted
     }
 
     private func changePlayback(using auth: SpotifyAuthModel,

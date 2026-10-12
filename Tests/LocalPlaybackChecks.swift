@@ -59,5 +59,102 @@ struct LocalPlaybackChecks {
         precondition(LocalSpotifyError.from(status: -1712) == .timeout)
         precondition(LocalSpotifyError.from(status: -600) == .notRunning)
         print("PASS: playing/paused/stopped snapshots and permission/timeout errors; no real player touched")
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SpotifyMockProtocol.self]
+        let session = URLSession(configuration: configuration)
+        SpotifyMockProtocol.server.configure([])
+        let auth = SpotifyAuthModel(tokenClient: SpotifyTokenClient(session: session), tokenStore: SpotifyMemoryStore())
+        let local = LocalPlayerFixture(state: state)
+        let model = SpotifyPlaybackModel(client: SpotifyPlaybackClient(session: session), localClient: local)
+        await model.enableDesktopControls()
+        precondition(model.usesDesktopPlayer && model.state?.isPlaying == true && !auth.isConnected)
+        precondition(model.canPerform(.pause) && !model.isBusy)
+        await local.setState(paused)
+        await model.perform(.pause, using: auth)
+        precondition(model.state?.isPlaying == false && model.canPerform(.play))
+        let commands = await local.commands
+        precondition(commands == [.pause] && SpotifyMockProtocol.server.requests().isEmpty)
+        print("PASS: permission, Now Playing and pause work without OAuth or HTTP requests")
+
+        let queued = await model.startTracks(uris: [uri, "spotify:track:0000000000000000000002"], using: auth)
+        precondition(!queued && model.errorMessage == LocalSpotifyError.queueUnsupported.localizedDescription)
+        let invalid = await model.startTrack(uri: "bad", using: auth)
+        let invalidStarts = await local.startedTracks
+        precondition(!invalid && invalidStarts.isEmpty)
+        let accepted = await model.startTrack(uri: uri, using: auth)
+        let starts = await local.startedTracks
+        precondition(accepted && starts == [uri])
+        print("PASS: local track start needs no token and multi-track queues are explicitly rejected")
+
+        await local.setCommandError(.timeout)
+        await model.perform(.next, using: auth)
+        precondition(model.isStale && !model.canPerform(.next) && !model.isBusy)
+        let afterTimeout = await local.commands
+        precondition(afterTimeout == [.pause, .next])
+        await local.setCommandError(nil)
+        await model.refresh(using: auth)
+        precondition(!model.isStale && model.errorMessage == nil)
+        await local.setReadError(.notRunning)
+        await model.perform(.next, using: auth)
+        precondition(model.errorMessage?.contains("accepted") == true && model.isStale)
+        let afterReadFailure = await local.commands
+        precondition(afterReadFailure == [.pause, .next, .next])
+        print("PASS: no replay after timeout; stale state disables controls; accepted-command/read failure stays honest")
+
+        await local.setReadError(nil)
+        await local.setReadDelay(200_000_000)
+        let refresh = Task { await model.refresh(using: auth) }
+        try await Task.sleep(for: .milliseconds(40))
+        precondition(model.isBusy)
+        model.useWebPlayer()
+        await refresh.value
+        precondition(!model.usesDesktopPlayer && model.state == nil && !model.isBusy)
+        await local.setReadDelay(0)
+        await local.setPermissionError(.permissionDenied)
+        await model.enableDesktopControls()
+        precondition(model.usesDesktopPlayer && model.state == nil && !model.isBusy)
+        precondition(model.errorMessage == LocalSpotifyError.permissionDenied.localizedDescription)
+        precondition(SpotifyMockProtocol.server.requests().isEmpty)
+        print("PASS: switching routes discards late reads and denied permission never falls back to Web API")
+
+        let suite = "mochi.local-test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        await local.setPermissionError(nil)
+        let saved = SpotifyPlaybackModel(localClient: local, defaults: defaults)
+        await saved.enableDesktopControls()
+        let restored = SpotifyPlaybackModel(localClient: local, defaults: defaults)
+        precondition(restored.usesDesktopPlayer)
+        restored.useWebPlayer()
+        precondition(!SpotifyPlaybackModel(localClient: local, defaults: defaults).usesDesktopPlayer)
+        print("PASS: chosen playback route persists independently of OAuth tokens")
     }
+}
+
+actor LocalPlayerFixture: LocalSpotifyControlling {
+    var state: SpotifyPlaybackState?
+    var commands: [SpotifyPlaybackCommand] = []
+    var startedTracks: [String] = []
+    private var permissionError: LocalSpotifyError?
+    private var commandError: LocalSpotifyError?
+    private var readError: LocalSpotifyError?
+    private var readDelay: UInt64 = 0
+    init(state: SpotifyPlaybackState?) { self.state = state }
+    func setState(_ state: SpotifyPlaybackState?) { self.state = state }
+    func setPermissionError(_ error: LocalSpotifyError?) { permissionError = error }
+    func setCommandError(_ error: LocalSpotifyError?) { commandError = error }
+    func setReadError(_ error: LocalSpotifyError?) { readError = error }
+    func setReadDelay(_ delay: UInt64) { readDelay = delay }
+    func authorize() async throws { if let permissionError { throw permissionError } }
+    func fetchState() async throws -> SpotifyPlaybackState? {
+        if readDelay > 0 { try await Task.sleep(nanoseconds: readDelay) }
+        if let readError { throw readError }
+        return state
+    }
+    func send(_ command: SpotifyPlaybackCommand) async throws {
+        commands.append(command)
+        if let commandError { throw commandError }
+    }
+    func startTrack(uri: String) async throws { startedTracks.append(uri) }
 }
