@@ -1,6 +1,6 @@
 # Music discovery and taste memory
 
-Mochi is a personal desktop DJ: describe a session, discover real recordings, rank them independently, and play confident Spotify matches. Last.fm supplies candidates; Spotify supplies deterministic catalog matching and playback. This version runs locally with FastAPI, SQLite, Swift and SwiftUI. It needs no AWS service.
+Mochi is a personal desktop DJ: describe a session, discover real recordings, rank them independently, and play confident Spotify matches. Last.fm supplies candidates; Spotify supplies deterministic catalog matching and playback. This version runs locally with FastAPI, SQLite, Swift and SwiftUI. It needs no AWS service. Spotify API matching is optional: [desktop controls and a public search handoff](local-spotify-playback.md) support use without API login, with manual recording selection.
 
 ## Setup
 
@@ -27,7 +27,7 @@ uv run --extra semantic python ../scripts/prepare-intent-model.py
 uv run --extra semantic fastapi dev main.py
 ```
 
-Model preparation is needed only once. Without the optional model, ranking falls back to lexical similarity. With no Last.fm key, the server returns an actionable setup message and an empty live selection; it never substitutes fictional songs. Start Spotify on the desired device, connect Mochi, and try `jazz piano`, `indie rock`, or `mellow acoustic guitar`.
+Model preparation is needed only once. Without the optional model, ranking falls back to lexical similarity. With no Last.fm key, the server returns an actionable setup message and an empty live selection; it never substitutes fictional songs. For automatic API matching, start Spotify on the desired device, connect Mochi, and try `jazz piano`, `indie rock`, or `mellow acoustic guitar`.
 
 For the explicit fictional offline demo, set `MOCHI_CATALOG_MODE=sample` and restart. Those rows are labeled and cannot trigger Spotify playback. The older [sample selection walkthrough](song-selection.md) explains this fixture mode.
 
@@ -42,8 +42,9 @@ Your request
   → independent tags/descriptions + optional verified tempo lookup
   → strict requirements, relevance ranking, taste adjustments
   → at most five canonical recordings
-  → Swift checks Spotify artist/title/version and available recording identifiers
-  → play the confirmed recordings in ranked order
+  → optional API login: Swift checks Spotify identity and recording identifiers
+  → Web API ranked playback or one confirmed track through desktop controls
+  → without API login: public search handoff and user-supplied track-link playback
   → explicit feedback influences later requests
 ```
 

@@ -22,20 +22,23 @@ The native companion, live discovery integration, independent ranking, conservat
 - HTTPS token exchange, access-token refresh, and secure token storage in macOS Keychain.
 - Restoration of a saved connection at app launch, even before the menu-bar panel opens.
 - Local disconnect that removes Mochi's saved tokens.
+- Optional Spotify desktop controls with no Web API login, plus validated track-link playback.
+- **Find on Spotify** in recommendation menus for users outside the API beta.
 - Now Playing with the song, artist, playing/paused status, and Spotify device.
 - Play/pause, previous, next, and manual Refresh controls.
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return up to five canonical recordings. Swift resolves confident Spotify versions and starts the available matches in ranked order. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
+**Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return up to five canonical recordings. API-connected users get conservative Spotify version matching: Web API mode starts the ranked subset, and desktop mode starts the first confirmed match. Users without API login can hand off to public Spotify search and play a copied track link locally. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
 
-See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md). The first release is a private hobby beta; public distribution requires resolving provider permissions and Spotify access limits.
+See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md). The first release is a private hobby beta. Desktop controls avoid the Web API allowlist for playback; automatic API matching remains limited. Public distribution still requires resolving provider permissions. See [local playback setup and limits](docs/local-spotify-playback.md).
 
 ## Requirements
 
 - macOS 26 or later.
 - Xcode with the macOS SDK and Swift toolchain. The project has been built with Swift 6.4.
-- Spotify Premium and a registered Spotify developer app for live authentication.
+- The Spotify Mac desktop app for local controls; macOS Automation permission is requested when you enable them.
+- Spotify Premium and a registered developer app only for optional Web API matching/playback.
 - Python 3.12 or later and [uv](https://docs.astral.sh/uv/) for the local listening-request backend.
 - A [Last.fm API key](https://www.last.fm/api/account/create) for live discovery, kept only in backend configuration.
 
@@ -107,12 +110,14 @@ For the code walkthrough, security model, refresh behavior, and official referen
 
 ## Now Playing and controls
 
-1. Connect Spotify in Mochi.
+For the optional **Web API** route:
+
+1. Connect Spotify API in Mochi.
 2. Open Spotify on your preferred device and start a song.
 3. Open Mochi's menu-bar panel. Click the circular-arrow **Refresh** button if needed.
 4. Use **Previous**, **Play/Pause**, or **Next**. Mochi targets the device shown in the panel and reads the updated playback state after Spotify accepts the command.
 
-Mochi takes a snapshot when the panel opens, after a control action, or when you click Refresh. It does not continuously poll Spotify. If you change tracks or devices elsewhere, click Refresh before using the controls. Spotify may take a moment to reflect a command; Refresh can fetch a newer result.
+Web API mode takes a snapshot when the panel opens, after a control action, or when you click Refresh. Desktop mode also checks every five seconds without requesting API tokens. If you change tracks or devices elsewhere, click Refresh before using the controls. Spotify may take a moment to reflect a command; Refresh can fetch a newer result.
 
 Controls are disabled while a request is running, when Spotify reports restrictions, or when there is no usable playback state. A failed refresh marks the displayed information as old and disables controls until a successful refresh. If Spotify limits requests, wait for the indicated delay before refreshing.
 
@@ -120,7 +125,7 @@ The playback client gets its access token from the existing authentication model
 
 ## Floating Mochi
 
-Mochi breathes with a gentle change in body shape, blinks, and glances around, with no ground shadow. About every 26 seconds while idle, it crouches, jumps with smiling eyes, and makes a squishy landing. Hovering or dragging restarts that idle wait. Hovering triggers an exaggerated cartoon squash-and-stretch greeting, smiling eyes, and a hand wave. Holding or dragging stretches its body with a surprised face; releasing it triggers a soft settling bounce. While Spotify’s last known playback state is playing, Mochi dances with big side-to-side leans, rhythmic squash-and-stretch bounces, alternating hand swings, and happy eyes instead of idle jumps. The dance uses its own steady rhythm. This follows the existing control/Refresh results, including while the menu is closed; it does not poll Spotify in the background. After 90 seconds without interaction, Mochi gradually falls asleep with closed eyes, slower breathing, and floating z’s; the dance and idle jumps stop. Hovering wakes it with a stretch and blink before its greeting. Mochi stays awake while its card is open. Animation pauses when hidden; macOS Reduce Motion uses static awake/asleep poses and static z’s. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background. It expands to 300 × 340 points for sample matches or Spotify search, and returns to the compact size after reset or an empty/clarification response.
+Mochi breathes with a gentle change in body shape, blinks, and glances around, with no ground shadow. About every 26 seconds while idle, it crouches, jumps with smiling eyes, and makes a squishy landing. Hovering or dragging restarts that idle wait. Hovering triggers an exaggerated cartoon squash-and-stretch greeting, smiling eyes, and a hand wave. Holding or dragging stretches its body with a surprised face; releasing it triggers a soft settling bounce. While Spotify’s last known playback state is playing, Mochi dances with big side-to-side leans, rhythmic squash-and-stretch bounces, alternating hand swings, and happy eyes instead of idle jumps. The dance uses its own steady rhythm. Web API mode follows control/Refresh results. Desktop mode also reads local state every five seconds while the menu is closed. After 90 seconds without interaction, Mochi gradually falls asleep with closed eyes, slower breathing, and floating z’s; the dance and idle jumps stop. Hovering wakes it with a stretch and blink before its greeting. Mochi stays awake while its card is open. Animation pauses when hidden; macOS Reduce Motion uses static awake/asleep poses and static z’s. The compact 300 × 180-point card uses a soft sage, translucent, blurred background; Reduce Transparency gives it a solid background. It expands to 300 × 340 points for sample matches or Spotify search, and returns to the compact size after reset or an empty/clarification response.
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
@@ -157,7 +162,7 @@ Search mode expands the same translucent card to 300 × 340 points, with a scrol
 
 Mochi uses Spotify's [catalog search](https://developer.spotify.com/documentation/web-api/reference/search) with five results and the connected user's market. Artist mode searches tracks with Spotify's `artist:` filter. You choose the result; Mochi does not assume the first match is correct. Tracks explicitly marked unavailable are disabled. Spotify may omit optional metadata, which Mochi tolerates.
 
-Choosing a track reads the active playback device, then sends its URI to Spotify's [Start/Resume Playback endpoint](https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback). This requires Premium and the existing `user-modify-playback-state` permission; no extra login scopes were added. Search and menu controls share playback sequencing. Mochi refreshes Now Playing after Spotify accepts the track; if confirmation fails, it reports that the command was accepted but its result could not be refreshed. It does not automatically repeat uncertain playback failures.
+In Web API mode, choosing a track reads the active playback device, then sends its URI to Spotify's [Start/Resume Playback endpoint](https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback). Web API playback requires Premium and the existing `user-modify-playback-state` permission; no extra login scopes were added. Desktop mode sends a confirmed URI directly to the installed app instead. Search and menu controls share playback sequencing. Mochi refreshes Now Playing after Spotify accepts the track; if confirmation fails, it reports that the command was accepted but its result could not be refreshed. It does not automatically repeat uncertain playback failures.
 
 ## App icon
 
@@ -182,6 +187,18 @@ bash scripts/test-auth.sh --keychain
 ```
 
 The Keychain check creates a uniquely named item containing fake tokens and deletes it afterward. Keep port 8888 free while running the checks.
+
+## Local Spotify desktop playback
+
+Open Spotify and start a song, then click **Use desktop controls** in Mochi's menu. Allow the macOS Automation request. Now Playing, play/pause and skips work without Spotify API login. Desktop mode refreshes every five seconds and keeps Mochi's dancing current.
+
+For recommendations, open a song's **… → Find on Spotify**, choose the recording and copy its track link. Paste that into the menu's **Spotify track link** field and click **Play link**. Automatic catalog matching still requires optional API access. Desktop mode plays one track at a time; it cannot create a queue or read your top artists.
+
+See [the flow, implementation and live-check steps](docs/local-spotify-playback.md). The new desktop route has mock integration/UI coverage and builds successfully; real Automation permission and playback remain to be checked on your Mac.
+
+```bash
+bash scripts/test-local-playback.sh
+```
 
 ## Playback checks
 
