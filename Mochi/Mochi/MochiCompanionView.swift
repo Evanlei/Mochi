@@ -20,6 +20,7 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var feedbackBusy = false
     @Published private(set) var likedTracks: Set<String> = []
     @Published private(set) var dislikedTracks: Set<String> = []
+    @Published private(set) var similarTo: String?
 
     private let backend: MochiBackendClient
     private var sendTask: Task<Void, Never>?
@@ -32,6 +33,7 @@ final class MochiRequestModel: ObservableObject {
     private var feedbackTask: Task<Void, Never>?
     private var retryAfter: Date?
     private var lastSelectedID: String?
+    private var currentPrompt: String?
 
     init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil) {
         self.backend = backend ?? MochiBackendClient()
@@ -56,21 +58,54 @@ final class MochiRequestModel: ObservableObject {
         let text = (choice ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending, !isStarting else { return }
         if choice != nil { draft = text }
+        sendRequest(text)
+    }
+
+    func canDiscoverSimilar(_ track: MochiSelectedTrack) -> Bool {
+        !isSending && !isStarting && !isPlaybackBusy && !feedbackBusy
+            && selection?.catalogKind == .lastfmLive && selection?.requestID != nil && currentPrompt != nil
+            && !dislikedTracks.contains(track.id) && selection?.tracks.contains(where: { $0.id == track.id }) == true
+    }
+
+    func moreLikeThis(_ track: MochiSelectedTrack) {
+        guard canDiscoverSimilar(track), let selection, let requestID = selection.requestID,
+              let canonical = selection.tracks.first(where: { $0.id == track.id }), let currentPrompt else { return }
+        sendRequest(currentPrompt, seed: canonical, seedRequestID: requestID)
+    }
+
+    private func sendRequest(_ text: String, seed: MochiSelectedTrack? = nil, seedRequestID: String? = nil) {
         requestGeneration = UUID()
         feedbackTask?.cancel(); feedbackTask = nil; feedbackBusy = false
         isSending = true
-        selection = nil
-        resolvedTracks = [:]; likedTracks = []; dislikedTracks = []; feedbackMessage = nil
-        reply = "Sending your request…"
+        if seed == nil {
+            selection = nil; currentPrompt = nil; similarTo = nil
+            resolvedTracks = [:]; likedTracks = []; dislikedTracks = []
+        }
+        feedbackMessage = nil
+        reply = seed.map { "Finding songs like \($0.title)…" } ?? "Sending your request…"
         let generation = requestGeneration
         sendTask = Task { [weak self, backend] in
             do {
-                let response = try await backend.send(prompt: text)
+                let response: MochiListeningResponse
+                if let seed, let seedRequestID {
+                    response = try await backend.moreLikeThis(seed, requestID: seedRequestID, prompt: text)
+                } else {
+                    response = try await backend.send(prompt: text)
+                }
                 try Task.checkCancellation()
                 guard let self, self.requestGeneration == generation else { return }
-                self.preferences = Array((self.preferences + [response.receivedPrompt]).suffix(20))
+                if seed != nil && response.selection?.tracks.isEmpty != false {
+                    // Failed/empty refinement leaves the existing songs playable.
+                    self.reply = response.clarification ?? response.selection?.message ?? "No new similar songs. Try another song."
+                    self.isSending = false; self.sendTask = nil
+                    return
+                }
+                if seed == nil { self.preferences = Array((self.preferences + [response.receivedPrompt]).suffix(20)) }
                 self.selection = response.selection
-                if self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
+                self.currentPrompt = response.receivedPrompt
+                self.similarTo = seed?.title
+                self.resolvedTracks = [:]; self.likedTracks = []; self.dislikedTracks = []
+                if seed == nil && self.draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { self.draft = "" }
                 if let question = response.clarification {
                     self.reply = question
                 } else if let selection = response.selection {
@@ -78,7 +113,7 @@ final class MochiRequestModel: ObservableObject {
                         self.reply = selection.message ?? "No matching tracks. Try another request."
                     } else {
                         let summary = response.intent?.summary ?? ""
-                        let title = selection.catalogKind == .fictionalSample ? "Sample matches" : "Music matches"
+                        let title = selection.catalogKind == .fictionalSample ? "Sample matches" : (seed == nil ? "Music matches" : "Similar matches")
                         self.reply = summary.isEmpty ? title : "\(title)\n\(summary)"
                     }
                 } else if let summary = response.intent?.summary, !summary.isEmpty {
@@ -271,6 +306,7 @@ final class MochiRequestModel: ObservableObject {
         draft = ""
         preferences = []
         selection = nil
+        currentPrompt = nil; similarTo = nil
         resolvedTracks = [:]; likedTracks = []; dislikedTracks = []
         isStarting = false; feedbackBusy = false; feedbackMessage = nil
         reply = "What do you feel like\nlistening to?"
@@ -422,6 +458,11 @@ struct MochiCompanionCard: View {
 
     private var selectionContent: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let seed = request.similarTo {
+                Text("More like \(seed)").font(.system(size: 9)).foregroundStyle(Color.mochiMuted)
+                    .lineLimit(1).help("More like \(seed)")
+                    .accessibilityIdentifier("mochiSimilarSeed")
+            }
             if request.selection?.catalogKind == .fictionalSample {
                 Text("Fictional sample tracks")
                     .font(.system(size: 10, weight: .medium)).foregroundStyle(Color.mochiMuted)
@@ -455,9 +496,15 @@ struct MochiCompanionCard: View {
                                 Button { request.feedback(track, event: .dislike) } label: { Image(systemName: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown") }
                                     .accessibilityLabel("Dislike \(track.title)")
                             }.disabled(request.feedbackBusy || request.isSending || request.isStarting)
-                            if let url = track.lastfmURL {
-                                Link(destination: url) { Image(systemName: "arrow.up.right") }.accessibilityLabel("\(track.title) on Last.fm")
-                            }
+                            Menu {
+                                Button("More like this") { request.moreLikeThis(track) }
+                                    .disabled(!request.canDiscoverSimilar(track))
+                                if let url = track.lastfmURL { Link("Open on Last.fm", destination: url) }
+                            } label: { Image(systemName: "ellipsis").frame(width: 18, height: 22) }
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .help("More like this or open on Last.fm")
+                            .accessibilityLabel("Options for \(track.title)")
+                            .accessibilityIdentifier("mochiSongOptions-\(track.id)")
                           }
                         }
                         .buttonStyle(.plain).font(.system(size: 10))

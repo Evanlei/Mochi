@@ -4,6 +4,17 @@ struct MochiListeningRequest: Encodable {
     let prompt: String
 }
 
+struct MochiSimilarRequest: Encodable {
+    let requestID: String
+    let trackID: String
+    let title: String
+    let artist: String
+
+    enum CodingKeys: String, CodingKey {
+        case requestID = "request_id", trackID = "track_id", title, artist
+    }
+}
+
 struct MochiListeningResponse: Decodable {
     let receivedPrompt: String
     let intent: MochiListeningIntent?
@@ -110,8 +121,23 @@ struct MochiBackendClient {
         guard !text.isEmpty, text.unicodeScalars.count <= 500 else {
             throw MochiBackendError.invalidPrompt
         }
+        return try await receive(path: "listening-request", body: JSONEncoder().encode(MochiListeningRequest(prompt: text)),
+                                 expectedPrompt: text, similar: false)
+    }
+
+    func moreLikeThis(_ track: MochiSelectedTrack, requestID: String, prompt: String) async throws -> MochiListeningResponse {
+        guard UUID(uuidString: requestID) != nil, track.source == "lastfm",
+              track.id.range(of: "^lastfm-[0-9a-f]{64}$", options: .regularExpression) != nil,
+              !track.title.isEmpty, !track.artist.isEmpty, track.title.unicodeScalars.count <= 200,
+              track.artist.unicodeScalars.count <= 200 else { throw MochiBackendError.invalidRecommendation }
+        let body = try JSONEncoder().encode(MochiSimilarRequest(requestID: requestID, trackID: track.id,
+                                                               title: track.title, artist: track.artist))
+        return try await receive(path: "more-like-this", body: body, expectedPrompt: prompt, similar: true)
+    }
+
+    private func receive(path: String, body: Data, expectedPrompt text: String, similar: Bool) async throws -> MochiListeningResponse {
         guard let url = URL(
-            string: "http://127.0.0.1:8000/listening-request"
+            string: "http://127.0.0.1:8000/\(path)"
         ) else {
             throw URLError(.badURL)
         }
@@ -120,9 +146,7 @@ struct MochiBackendClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            MochiListeningRequest(prompt: text)
-        )
+        request.httpBody = body
 
         let data: Data
         let response: URLResponse
@@ -142,11 +166,15 @@ struct MochiBackendClient {
             throw MochiBackendError.invalidResponse
         }
         guard httpResponse.statusCode == 200 else {
-            if httpResponse.statusCode == 422 { throw MochiBackendError.invalidPrompt }
+            if similar && httpResponse.statusCode == 409 { throw MochiBackendError.expiredRecommendation }
+            if httpResponse.statusCode == 422 { throw similar ? MochiBackendError.invalidRecommendation : MochiBackendError.invalidPrompt }
             throw MochiBackendError.server(httpResponse.statusCode)
         }
         guard let result = try? JSONDecoder().decode(MochiListeningResponse.self, from: data),
               result.receivedPrompt == text else { throw MochiBackendError.invalidResponse }
+        if similar && result.selection?.catalogKind != .lastfmLive {
+            throw MochiBackendError.invalidResponse
+        }
         if let tracks = result.selection?.tracks {
             guard tracks.count <= 5, Set(tracks.map(\.id)).count == tracks.count,
                   tracks.allSatisfy({ !$0.id.isEmpty && !$0.title.isEmpty && !$0.artist.isEmpty && $0.score.isFinite &&
@@ -194,6 +222,7 @@ struct MochiBackendClient {
 enum MochiBackendError: LocalizedError {
     case invalidPrompt, unavailable, timeout, connectionFailed, invalidResponse
     case server(Int)
+    case expiredRecommendation, invalidRecommendation
 
     var errorDescription: String? {
         switch self {
@@ -203,6 +232,8 @@ enum MochiBackendError: LocalizedError {
         case .connectionFailed: return "Couldn't contact the backend. Try again."
         case .invalidResponse: return "The backend sent an unexpected reply. Try again."
         case .server(let status): return "The backend couldn't accept this request (\(status)). Try again."
+        case .expiredRecommendation: return "This recommendation expired or was cleared. Send a new listening request."
+        case .invalidRecommendation: return "Choose a song from the current live recommendations."
         }
     }
 }

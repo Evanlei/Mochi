@@ -185,5 +185,71 @@ struct DiscoveryChecks {
         offline.submit("piano"); try await settle(offline)
         precondition(SpotifyMockProtocol.server.requests().count == 1 && !offline.canPlayMatches)
         print("PASS: rate-limit cooldown and fictional fixtures never start real playback")
+
+        let refining = MochiRequestModel(backend: backend, resolver: resolver)
+        let originalPrompt = "piano 80-100 BPM"
+        SpotifyMockProtocol.server.configure([try response(originalPrompt)])
+        refining.submit(originalPrompt); try await settle(refining)
+        refining.draft = "electronic for tomorrow"
+        var nextTrack = source("New Piano")
+        nextTrack["id"] = "lastfm-" + String(repeating: "b", count: 64)
+        SpotifyMockProtocol.server.configure([try response(originalPrompt, tracks: [nextTrack])])
+        refining.moreLikeThis(track); try await settle(refining)
+        let similarRequest = SpotifyMockProtocol.server.requests()[0]
+        let similarBody = try JSONSerialization.jsonObject(with: spotifyRequestBody(similarRequest)!) as! [String: String]
+        precondition(similarRequest.url?.path == "/more-like-this" && similarRequest.httpMethod == "POST")
+        precondition(similarBody == ["request_id": requestID, "track_id": sourceID, "title": track.title, "artist": track.artist])
+        precondition(refining.draft == "electronic for tomorrow" && refining.preferences == [originalPrompt])
+        precondition(refining.selection?.tracks.first?.title == "New Piano" && refining.similarTo == track.title)
+        let next = refining.selection!.tracks[0]
+        print("PASS: similar-song requests use canonical context, preserve the draft and retain original preferences")
+
+        for failure in [SpotifyReply(status: 409), SpotifyReply(status: 422), SpotifyReply(error: .cannotConnectToHost),
+                        try response(originalPrompt, tracks: []),
+                        try response(originalPrompt, tracks: [fixture], kind: "fictional_sample")] {
+            SpotifyMockProtocol.server.configure([failure])
+            refining.moreLikeThis(next); try await settle(refining)
+            precondition(refining.selection?.tracks.first?.id == next.id && refining.similarTo == track.title)
+            precondition(refining.draft == "electronic for tomorrow" && !refining.isSending)
+            precondition(SpotifyMockProtocol.server.requests().count == 1)
+        }
+        print("PASS: expired/invalid/offline/empty refinement keeps the existing songs and allows retry")
+
+        var delayed = try response(originalPrompt, tracks: [source("Late Piano")]); delayed.delay = 0.2
+        SpotifyMockProtocol.server.configure([delayed])
+        refining.moreLikeThis(next); refining.moreLikeThis(next)
+        try await Task.sleep(for: .milliseconds(20)); refining.reset()
+        try await Task.sleep(for: .milliseconds(230))
+        precondition(refining.selection == nil && refining.similarTo == nil && !refining.isSending)
+        precondition(SpotifyMockProtocol.server.requests().count == 1)
+
+        SpotifyMockProtocol.server.configure([try response(), try json(["tracks": ["items": [spotify()]]]),
+            try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
+        let similarConnected = MochiRequestModel(backend: backend, resolver: resolver)
+        let similarAuth = await auth()
+        similarConnected.configure(using: similarAuth, playback: playback)
+        similarConnected.submit("piano"); try await settle(similarConnected)
+        SpotifyMockProtocol.server.configure([try response(tracks: [nextTrack]),
+            try json(["tracks": ["items": [spotify("New Piano")]]]),
+            try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
+        similarConnected.moreLikeThis(track); try await settle(similarConnected)
+        precondition(similarConnected.reply == "Started 1 of 1 matches.")
+        precondition(SpotifyMockProtocol.server.requests().first?.url?.path == "/more-like-this")
+        precondition(SpotifyMockProtocol.server.requests().filter { $0.httpMethod == "PUT" }.count == 1)
+
+        SpotifyMockProtocol.server.configure([delayed])
+        similarConnected.moreLikeThis(next)
+        try await Task.sleep(for: .milliseconds(20)); similarAuth.disconnect()
+        try await Task.sleep(for: .milliseconds(230))
+        precondition(similarConnected.selection == nil && !similarConnected.isConnected)
+        precondition(!SpotifyMockProtocol.server.requests().contains { $0.httpMethod == "PUT" })
+        print("PASS: similar-song playback uses the shared resolver/player and reset/disconnect discard late results")
+
+        SpotifyMockProtocol.server.configure([try response(tracks: [fixture], kind: "fictional_sample")])
+        refining.submit("piano"); try await settle(refining)
+        precondition(!refining.canDiscoverSimilar(refining.selection!.tracks[0]))
+        refining.moreLikeThis(refining.selection!.tracks[0])
+        precondition(SpotifyMockProtocol.server.requests().count == 1)
+        print("PASS: fictional sample selections cannot trigger live similar-song discovery")
     }
 }
