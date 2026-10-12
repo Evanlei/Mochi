@@ -11,9 +11,11 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
     let companion: MochiCompanionController
     private var connectionSubscription: AnyCancellable?
     private var restoreTask: Task<Void, Never>?
+    private var desktopSubscription: AnyCancellable?
+    private var desktopRefreshTask: Task<Void, Never>?
 
     override convenience init() {
-        self.init(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(), companion: MochiCompanionController())
+        self.init(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(defaults: .standard), companion: MochiCompanionController())
     }
 
     init(spotify: SpotifyAuthModel, playback: SpotifyPlaybackModel, companion: MochiCompanionController) {
@@ -33,8 +35,8 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
         )
         connectionSubscription = spotify.$isConnected.removeDuplicates().sink { [weak self] connected in
             guard let self else { return }
-            self.playback.reset()
-            if connected {
+            if !self.playback.usesDesktopPlayer { self.playback.reset() }
+            if connected && !self.playback.usesDesktopPlayer {
                 Task { [weak self] in
                     guard let self else { return }
                     await self.playback.refresh(using: self.spotify)
@@ -43,11 +45,29 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
         }
         companion.start()
         restoreTask = Task { [weak self] in await self?.spotify.restore() }
+        desktopSubscription = playback.$usesDesktopPlayer.removeDuplicates().sink { [weak self] desktop in
+            guard let self else { return }
+            self.desktopRefreshTask?.cancel()
+            self.desktopRefreshTask = nil
+            guard desktop else { return }
+            // Keep Now Playing and Mochi's dancing current while the menu is closed.
+            // These reads only check existing permission and never show a consent dialog.
+            self.desktopRefreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self, self.playback.usesDesktopPlayer else { return }
+                    await self.playback.refresh(using: self.spotify)
+                    do { try await Task.sleep(for: .seconds(5)) }
+                    catch { return }
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         restoreTask?.cancel()
         connectionSubscription?.cancel()
+        desktopSubscription?.cancel()
+        desktopRefreshTask?.cancel()
         companion.stop()
     }
 }

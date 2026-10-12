@@ -42,7 +42,8 @@ final class SpotifySearchModel: ObservableObject {
                 if !connected { self.reset() }
                 self.isConnected = connected
             },
-            playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy }
+            playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy },
+            playback.$usesDesktopPlayer.removeDuplicates().dropFirst().sink { [weak self] _ in self?.reset() }
         ]
     }
 

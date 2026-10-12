@@ -94,6 +94,17 @@ struct MochiSelectedTrack: Decodable, Identifiable {
         return url
     }
 
+    /// Public search handoff: the user chooses the recording; this is not a resolved match.
+    var spotifySearchURL: URL? {
+        guard source == "lastfm" else { return nil }
+        var url = URLComponents()
+        url.scheme = "https"; url.host = "open.spotify.com"
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))
+        guard let query = "\(artist) \(title)".addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        url.percentEncodedPath = "/search/\(query)"
+        return url.url
+    }
+
     var details: String {
         var parts: [String] = []
         if let energy { parts.append(energy == .low ? "Low energy" : "High energy") }

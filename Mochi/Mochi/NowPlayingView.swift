@@ -3,9 +3,35 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var spotify: SpotifyAuthModel
     @ObservedObject var playback: SpotifyPlaybackModel
+    @State private var trackLink = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(playback.usesDesktopPlayer ? "Spotify desktop" : "Spotify Web API")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Menu {
+                    Button("Use desktop controls") {
+                        Task { await playback.enableDesktopControls() }
+                    }
+                    .disabled(playback.isBusy)
+                    Button("Use Web API controls") {
+                        playback.useWebPlayer()
+                        Task { await playback.refresh(using: spotify) }
+                    }
+                    .disabled(playback.isBusy)
+                } label: { Image(systemName: "slider.horizontal.3") }
+                .help("Choose Spotify controls")
+                .accessibilityLabel("Choose Spotify controls")
+            }
+            if !playback.usesDesktopPlayer {
+                Button("Use desktop controls") {
+                    Task { await playback.enableDesktopControls() }
+                }
+                .disabled(playback.isBusy)
+                .help("Control the Spotify Mac app without connecting a Spotify API account")
+            }
             HStack {
                 Text("Now Playing").font(.headline)
                 Spacer()
@@ -17,11 +43,11 @@ struct NowPlayingView: View {
                 }
                 .help("Refresh playback")
                 .accessibilityLabel("Refresh playback")
-                .disabled(!spotify.isConnected || playback.isBusy)
+                .disabled((!spotify.isConnected && !playback.usesDesktopPlayer) || playback.isBusy)
             }
 
-            if !spotify.isConnected {
-                Text("Connect Spotify to see what’s playing.")
+            if !spotify.isConnected && !playback.usesDesktopPlayer {
+                Text("Use desktop controls, or connect the Spotify API.")
                     .foregroundStyle(.secondary)
             } else if let state = playback.state {
                 if let item = state.item {
@@ -59,6 +85,19 @@ struct NowPlayingView: View {
             }
             .font(.title3)
 
+            if playback.usesDesktopPlayer {
+                HStack {
+                    TextField("Spotify track link", text: $trackLink)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Spotify track link")
+                        .onSubmit { playLink() }
+                    Button("Play link") { playLink() }
+                        .disabled(playback.isBusy || LocalSpotifyClient.trackURI(from: trackLink) == nil)
+                }
+                Text("Copy a song’s link in Spotify to play it here.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
             if playback.isStale {
                 Text("Showing the last result. Refresh before using controls.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -83,6 +122,11 @@ struct NowPlayingView: View {
         }
         .help(label)
         .accessibilityLabel(label)
-        .disabled(!spotify.isConnected || !playback.canPerform(command))
+        .disabled((!spotify.isConnected && !playback.usesDesktopPlayer) || !playback.canPerform(command))
+    }
+
+    private func playLink() {
+        guard !playback.isBusy, let uri = LocalSpotifyClient.trackURI(from: trackLink) else { return }
+        Task { _ = await playback.startTrack(uri: uri, using: spotify) }
     }
 }

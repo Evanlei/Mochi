@@ -159,13 +159,15 @@ struct LocalSpotifyClient: LocalSpotifyControlling {
 
     private static func send(_ event: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
         do {
+            try Task.checkCancellation()
             let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 2)
             if let error = reply.paramDescriptor(forKeyword: keyErrorNumber), error.int32Value != 0 {
                 if error.int32Value == -1728 { throw LocalSpotifyError.noTrack }
                 throw LocalSpotifyError.from(status: Int(error.int32Value))
             }
             return reply.paramDescriptor(forKeyword: keyDirectObject) ?? .null()
-        } catch let error as LocalSpotifyError { throw error }
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as LocalSpotifyError { throw error }
         catch { throw LocalSpotifyError.from(status: (error as NSError).code) }
     }
 

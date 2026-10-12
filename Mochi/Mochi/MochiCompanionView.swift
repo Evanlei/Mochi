@@ -16,6 +16,7 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var isStarting = false
     @Published private(set) var isPlaybackBusy = false
     @Published private(set) var isConnected = false
+    @Published private(set) var usesDesktopPlayer = false
     @Published private(set) var feedbackMessage: String?
     @Published private(set) var feedbackBusy = false
     @Published private(set) var likedTracks: Set<String> = []
@@ -47,7 +48,12 @@ final class MochiRequestModel: ObservableObject {
             guard let self else { return }
             if !connected && self.isConnected { self.reset() }
             self.isConnected = connected
-        }, playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy }]
+        }, playback.$isBusy.removeDuplicates().sink { [weak self] busy in self?.isPlaybackBusy = busy },
+        playback.$usesDesktopPlayer.removeDuplicates().sink { [weak self] desktop in
+            guard let self else { return }
+            if self.usesDesktopPlayer != desktop { self.reset() }
+            self.usesDesktopPlayer = desktop
+        }]
     }
 
     var canSubmit: Bool { !isSending && !isStarting && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -126,7 +132,7 @@ final class MochiRequestModel: ObservableObject {
                         await self.resolveAndPlay(generation: generation, auth: auth)
                         guard self.requestGeneration == generation else { return }
                     } else {
-                        self.reply = "Music matches ready.\nConnect Spotify to play them."
+                        self.reply = "Music matches ready.\nChoose Find on Spotify in a song’s menu."
                     }
                 }
                 self.isSending = false
@@ -196,12 +202,15 @@ final class MochiRequestModel: ObservableObject {
                 reply = failures.first ?? "No confident Spotify matches.\nTry another request."
                 return
             }
-            let uris = matched.compactMap { resolvedTracks[$0.id]?.uri }
+            // Spotify's desktop scripting interface cannot create a queue.
+            let toPlay = playback.usesDesktopPlayer ? Array(matched.prefix(1)) : matched
+            let uris = toPlay.compactMap { resolvedTracks[$0.id]?.uri }
             reply = "Starting your music…"
             let accepted = await playback.startTracks(uris: uris, using: auth)
             try check(generation, auth: auth, connection: connection)
-            reply = playback.errorMessage ?? (accepted ? "Started \(matched.count) of \(selection.tracks.count) matches." : "Playback is busy. Try a play button.")
-            if accepted, let first = matched.first {
+            let startedMessage = playback.usesDesktopPlayer ? "Playing the first match on Spotify desktop." : "Started \(matched.count) of \(selection.tracks.count) matches."
+            reply = playback.errorMessage ?? (accepted ? startedMessage : "Playback is busy. Try a play button.")
+            if accepted, let first = toPlay.first {
                 // Record our selection, not imported Spotify history or inferred listens.
                 recordSelection(first, generation: generation)
             }
@@ -474,8 +483,10 @@ struct MochiCompanionCard: View {
                         .accessibilityIdentifier("mochiDiscoverySource")
                         .help(request.selection?.warnings?.joined(separator: "\n") ?? "Independently ranked by Mochi")
                     Spacer()
-                    Button("Play matches") { request.playMatches() }
-                        .buttonStyle(.plain).disabled(!request.canPlayMatches)
+                    if request.isConnected {
+                        Button(request.usesDesktopPlayer ? "Play first match" : "Play matches") { request.playMatches() }
+                            .buttonStyle(.plain).disabled(!request.canPlayMatches)
+                    }
                 }.font(.system(size: 10))
             }
             ScrollView {
@@ -488,8 +499,10 @@ struct MochiCompanionCard: View {
                             Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
                           }.frame(maxWidth: .infinity, alignment: .leading)
                           if request.selection?.catalogKind == .lastfmLive {
-                            Button { request.play(track) } label: { Image(systemName: "play.fill") }
-                                .disabled(!request.canPlay(track)).accessibilityLabel("Play \(track.title)")
+                            if request.isConnected {
+                                Button { request.play(track) } label: { Image(systemName: "play.fill") }
+                                    .disabled(!request.canPlay(track)).accessibilityLabel("Play \(track.title)")
+                            }
                             VStack(spacing: 7) {
                                 Button { request.feedback(track, event: .like) } label: { Image(systemName: request.likedTracks.contains(track.id) ? "hand.thumbsup.fill" : "hand.thumbsup") }
                                     .accessibilityLabel("Like \(track.title)")
@@ -499,10 +512,11 @@ struct MochiCompanionCard: View {
                             Menu {
                                 Button("More like this") { request.moreLikeThis(track) }
                                     .disabled(!request.canDiscoverSimilar(track))
+                                if let url = track.spotifySearchURL { Link("Find on Spotify", destination: url) }
                                 if let url = track.lastfmURL { Link("Open on Last.fm", destination: url) }
                             } label: { Image(systemName: "ellipsis").frame(width: 18, height: 22) }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                            .help("More like this or open on Last.fm")
+                            .help("More like this, find on Spotify, or open on Last.fm")
                             .accessibilityLabel("Options for \(track.title)")
                             .accessibilityIdentifier("mochiSongOptions-\(track.id)")
                           }

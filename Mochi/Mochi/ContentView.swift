@@ -17,13 +17,16 @@ struct ContentView: View {
                 } else if spotify.isConnected {
                     Button("Disconnect") { spotify.disconnect() }
                 } else {
-                    Button("Connect Spotify") { spotify.connect() }
+                    Button("Connect Spotify API") { spotify.connect() }
+                        .help("Optional: enables automatic Spotify search and matching for API beta users")
                 }
             }
-            Text(spotify.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if !playback.usesDesktopPlayer || spotify.isBusy {
+                Text(spotify.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Divider()
             NowPlayingView(spotify: spotify, playback: playback)
             Divider()
@@ -40,7 +43,7 @@ struct ContentView: View {
         .frame(width: 380)
         .task {
             // Opening the menu refreshes its snapshot without resetting shared in-flight work.
-            if spotify.isConnected { await playback.refresh(using: spotify) }
+            if spotify.isConnected || playback.usesDesktopPlayer { await playback.refresh(using: spotify) }
         }
     }
 }
