@@ -92,3 +92,34 @@ func mochiSampleSelectionPayload() -> [String: Any] {
     }
     return ["catalog_kind": "fictional_sample", "method": "semantic", "tracks": tracks, "message": NSNull()]
 }
+
+actor LocalPlayerFixture: LocalSpotifyControlling {
+    var state: SpotifyPlaybackState?
+    var commands: [SpotifyPlaybackCommand] = []
+    var startedTracks: [String] = []
+    var authorizationCount = 0
+    private var permissionError: LocalSpotifyError?
+    private var commandError: LocalSpotifyError?
+    private var readError: LocalSpotifyError?
+    private var readDelay: UInt64 = 0
+    init(state: SpotifyPlaybackState?) { self.state = state }
+    func setState(_ state: SpotifyPlaybackState?) { self.state = state }
+    func setPermissionError(_ error: LocalSpotifyError?) { permissionError = error }
+    func setCommandError(_ error: LocalSpotifyError?) { commandError = error }
+    func setReadError(_ error: LocalSpotifyError?) { readError = error }
+    func setReadDelay(_ delay: UInt64) { readDelay = delay }
+    func authorize() async throws {
+        authorizationCount += 1
+        if let permissionError { throw permissionError }
+    }
+    func fetchState() async throws -> SpotifyPlaybackState? {
+        if readDelay > 0 { try await Task.sleep(nanoseconds: readDelay) }
+        if let readError { throw readError }
+        return state
+    }
+    func send(_ command: SpotifyPlaybackCommand) async throws {
+        commands.append(command)
+        if let commandError { throw commandError }
+    }
+    func startTrack(uri: String) async throws { startedTracks.append(uri) }
+}

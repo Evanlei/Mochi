@@ -167,7 +167,13 @@ struct DiscoveryChecks {
         let offline = MochiRequestModel(backend: backend, resolver: resolver)
         SpotifyMockProtocol.server.configure([try response()])
         offline.submit("piano"); try await settle(offline)
-        precondition(offline.reply.contains("Connect Spotify"))
+        precondition(offline.reply.contains("Find on Spotify"))
+        precondition(SpotifyMockProtocol.server.requests().count == 1)
+        let handoff = try decodeSource(source("A/B?C#D%", extras: ["artist": "Björk & friends"]))
+        precondition(handoff.spotifySearchURL?.host == "open.spotify.com")
+        precondition(handoff.spotifySearchURL?.path == "/search/Björk & friends A/B?C#D%")
+        precondition(handoff.spotifySearchURL?.query == nil && handoff.spotifySearchURL?.fragment == nil)
+        precondition(handoff.spotifySearchURL?.absoluteString.contains("%2F") == true)
         let reconnected = await auth()
         offline.configure(using: reconnected, playback: playback)
         SpotifyMockProtocol.server.configure([try json(["tracks": ["items": [spotify()]]]),
@@ -251,5 +257,36 @@ struct DiscoveryChecks {
         refining.moreLikeThis(refining.selection!.tracks[0])
         precondition(SpotifyMockProtocol.server.requests().count == 1)
         print("PASS: fictional sample selections cannot trigger live similar-song discovery")
+
+        let localState = try JSONDecoder().decode(SpotifyPlaybackState.self, from: state().data)
+        let desktop = LocalPlayerFixture(state: localState)
+        let desktopPlayback = SpotifyPlaybackModel(client: SpotifyPlaybackClient(session: session), localClient: desktop)
+        SpotifyMockProtocol.server.configure([])
+        await desktopPlayback.enableDesktopControls()
+        let desktopRequest = MochiRequestModel(backend: backend, resolver: resolver)
+        let noAPI = SpotifyAuthModel(tokenStore: SpotifyMemoryStore())
+        desktopRequest.configure(using: noAPI, playback: desktopPlayback)
+        SpotifyMockProtocol.server.configure([try response()])
+        desktopRequest.submit("piano"); try await settle(desktopRequest)
+        precondition(desktopRequest.hasSelectedTracks && desktopRequest.reply.contains("Find on Spotify"))
+        precondition(!desktopRequest.canPlayMatches && SpotifyMockProtocol.server.requests().count == 1)
+        precondition(SpotifyMockProtocol.server.requests()[0].url?.host == "127.0.0.1")
+        print("PASS: desktop-only discovery uses the independent backend and never requests a Spotify API token")
+
+        let api = await auth()
+        desktopRequest.configure(using: api, playback: desktopPlayback)
+        let desktopSecond = source("Second song", extras: ["id": "lastfm-" + String(repeating: "b", count: 64)])
+        SpotifyMockProtocol.server.configure([try response(tracks: [source(), desktopSecond]),
+            try json(["tracks": ["items": [spotify()]]]),
+            try json(["tracks": ["items": [spotify("Second song", id: "0000000000000000000002")]]]),
+            try json(["status": "ok"])])
+        desktopRequest.submit("piano"); try await settle(desktopRequest)
+        let localStarts = await desktop.startedTracks
+        precondition(localStarts == ["spotify:track:\(spotifyID)"])
+        precondition(desktopRequest.resolvedTracks.count == 2)
+        precondition(desktopRequest.reply == "Playing the first match on Spotify desktop.")
+        precondition(!SpotifyMockProtocol.server.requests().contains(where: { $0.url?.path.hasPrefix("/v1/me/player") == true }))
+        precondition(!SpotifyMockProtocol.server.requests().contains(where: { $0.url?.path == "/api/token" }))
+        print("PASS: optional API matching hands only the first ranked URI to desktop playback, never a fake queue")
     }
 }

@@ -131,30 +131,3 @@ struct LocalPlaybackChecks {
         print("PASS: chosen playback route persists independently of OAuth tokens")
     }
 }
-
-actor LocalPlayerFixture: LocalSpotifyControlling {
-    var state: SpotifyPlaybackState?
-    var commands: [SpotifyPlaybackCommand] = []
-    var startedTracks: [String] = []
-    private var permissionError: LocalSpotifyError?
-    private var commandError: LocalSpotifyError?
-    private var readError: LocalSpotifyError?
-    private var readDelay: UInt64 = 0
-    init(state: SpotifyPlaybackState?) { self.state = state }
-    func setState(_ state: SpotifyPlaybackState?) { self.state = state }
-    func setPermissionError(_ error: LocalSpotifyError?) { permissionError = error }
-    func setCommandError(_ error: LocalSpotifyError?) { commandError = error }
-    func setReadError(_ error: LocalSpotifyError?) { readError = error }
-    func setReadDelay(_ delay: UInt64) { readDelay = delay }
-    func authorize() async throws { if let permissionError { throw permissionError } }
-    func fetchState() async throws -> SpotifyPlaybackState? {
-        if readDelay > 0 { try await Task.sleep(nanoseconds: readDelay) }
-        if let readError { throw readError }
-        return state
-    }
-    func send(_ command: SpotifyPlaybackCommand) async throws {
-        commands.append(command)
-        if let commandError { throw commandError }
-    }
-    func startTrack(uri: String) async throws { startedTracks.append(uri) }
-}

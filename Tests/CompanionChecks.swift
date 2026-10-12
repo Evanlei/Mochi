@@ -347,7 +347,7 @@ struct CompanionChecks {
             precondition(findIdentifier("mochiDiscoverySource", in: card.contentView!) != nil)
             precondition(button("Like Development recording 1", in: card.contentView!) != nil)
             precondition(button("Dislike Development recording 1", in: card.contentView!) != nil)
-            precondition(button("Play matches", in: card.contentView!) != nil)
+            precondition(button("Play matches", in: card.contentView!) == nil)
             let seed = companion.request.selection!.tracks[0]
             precondition(findIdentifier("mochiSongOptions-\(seed.id)", in: card.contentView!) != nil,
                          "Song options menu was not accessible")
@@ -386,6 +386,73 @@ struct CompanionChecks {
             }
             companion.request.reset()
             print("PASS: accessible song options, similar-song context, draft retention and compact native rendering")
+        }
+
+        if !liveBackend {
+            let localState = try JSONDecoder().decode(SpotifyPlaybackState.self, from: playing)
+            let local = LocalPlayerFixture(state: localState)
+            let localPlayback = SpotifyPlaybackModel(localClient: local)
+            let offlineAuth = SpotifyAuthModel(tokenStore: SpotifyMemoryStore())
+            SpotifyMockProtocol.server.configure([])
+            let localMenu = NSPanel(contentRect: NSRect(x: 120, y: 120, width: 380, height: 430),
+                                    styleMask: .borderless, backing: .buffered, defer: false)
+            localMenu.contentView = NSHostingView(rootView: ContentView(spotify: offlineAuth, playback: localPlayback, companion: companion)
+                .environment(\.colorScheme, .light).background(Color.white))
+            localMenu.orderFrontRegardless()
+            try await Task.sleep(for: .milliseconds(150))
+            guard let desktopButton = button("Use desktop controls", in: localMenu.contentView!) else { fatalError("Desktop action missing") }
+            precondition(press(desktopButton))
+            let deadline = Date().addingTimeInterval(3)
+            while !localPlayback.usesDesktopPlayer || localPlayback.isBusy {
+                precondition(Date() < deadline)
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try await Task.sleep(for: .milliseconds(150))
+            precondition(localPlayback.state?.item?.name == "Test Song")
+            precondition(button("Pause", in: localMenu.contentView!) != nil)
+            precondition(button("Play link", in: localMenu.contentView!) != nil)
+            precondition(SpotifyMockProtocol.server.requests().isEmpty)
+            func editableField(in view: NSView) -> NSTextField? {
+                if let field = view as? NSTextField, field.isEditable { return field }
+                for child in view.subviews { if let field = editableField(in: child) { return field } }
+                return nil
+            }
+            guard let field = editableField(in: localMenu.contentView!) else { fatalError("Track-link field missing") }
+            localMenu.makeKeyAndOrderFront(nil)
+            precondition(localMenu.makeFirstResponder(field))
+            guard let editor = localMenu.firstResponder as? NSTextInputClient else { fatalError("Track-link field not editable") }
+            editor.insertText("https://open.spotify.com/track/0000000000000000000001?si=test", replacementRange: NSRange(location: NSNotFound, length: 0))
+            try await Task.sleep(for: .milliseconds(50))
+            precondition(press(button("Play link", in: localMenu.contentView!)!))
+            try await Task.sleep(for: .milliseconds(500))
+            let starts = await local.startedTracks
+            precondition(starts == ["spotify:track:0000000000000000000001"] && !localPlayback.isBusy)
+            precondition(SpotifyMockProtocol.server.requests().isEmpty)
+            if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = localMenu.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("desktop-player-menu.png"))
+            }
+            localMenu.orderOut(nil); localMenu.contentView = nil
+            print("PASS: desktop action, Now Playing, native track-link typing/click playback without Spotify API login")
+            let pollingCompanion = MochiCompanionController(defaults: defaults)
+            let localDelegate = MochiAppDelegate(spotify: offlineAuth, playback: localPlayback, companion: pollingCompanion)
+            localDelegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+            try await Task.sleep(for: .milliseconds(100))
+            let pausedState = SpotifyPlaybackState(isPlaying: false, item: localState.item, device: localState.device,
+                                                  actions: nil, currentlyPlayingType: "track")
+            await local.setState(pausedState)
+            let refreshDeadline = Date().addingTimeInterval(7)
+            while localPlayback.state?.isPlaying != false {
+                precondition(Date() < refreshDeadline, "Desktop state wasn't refreshed with the menu closed")
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            let authorizations = await local.authorizationCount
+            precondition(authorizations == 1 && SpotifyMockProtocol.server.requests().isEmpty)
+            localDelegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+            print("PASS: desktop state refreshes with menu closed and app launch never repeats permission or OAuth requests")
         }
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
