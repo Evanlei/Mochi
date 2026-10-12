@@ -478,6 +478,25 @@ struct CompanionChecks {
             guard let artistInput = artistCard.firstResponder as? NSTextInputClient else { fatalError("Artist input is not focused") }
             artistInput.insertText(name, replacementRange: NSRange(location: NSNotFound, length: 0))
             let deadline = Date().addingTimeInterval(3)
+            if name == "Second Fixture Artist" {
+                let artistReturn = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: artistCard.windowNumber,
+                    context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+                artistCard.sendEvent(artistReturn) // Actual Return, before autocomplete returns.
+            } else if name == "Third Fixture Artist" {
+                try await Task.sleep(for: .milliseconds(30))
+                guard let addTyped = button("Add typed artist", in: artistCard.contentView!) else { fatalError("No visible Add action") }
+                precondition(press(addTyped))
+            }
+            if name != "Fixture Artist" {
+                while !artists.names.contains(name) {
+                    precondition(Date() < deadline, "Return/Add didn't save the typed artist")
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                precondition(SpotifyMockProtocol.server.requests().count == 1)
+                try await Task.sleep(for: .milliseconds(100))
+                continue
+            }
             while artists.suggestions.isEmpty {
                 precondition(Date() < deadline, "Artist autocomplete didn't finish")
                 try await Task.sleep(for: .milliseconds(10))
@@ -512,7 +531,7 @@ struct CompanionChecks {
         precondition(artistCard.frame.size == MochiCompanionCard.size)
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(artistCard.frame) })
         artistCompanion.stop()
-        print("PASS: native optional onboarding, artist autocomplete typing/Add/Remove/Done, card resizing and saved choices")
+        print("PASS: native artist onboarding, autocomplete, Return/visible Add/result/Remove/Done, card resizing and saved choices")
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })

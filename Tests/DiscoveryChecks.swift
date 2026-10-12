@@ -72,6 +72,8 @@ struct DiscoveryChecks {
             SpotifyMockProtocol.server.configure([try json(["query": name, "artists": [name]])])
             await artists.search()
             precondition(artists.suggestions == [name])
+            artists.query = name // macOS can write the same value when editing ends.
+            precondition(artists.suggestions == [name], "Same-value text updates erased artist suggestions")
             artists.add(name)
             let sent = SpotifyMockProtocol.server.requests()[0]
             precondition(sent.url?.absoluteString == "http://127.0.0.1:8000/artist-search")
@@ -87,6 +89,30 @@ struct DiscoveryChecks {
         precondition(MochiArtistPreferencesModel(defaults: defaults).names == ["音楽", "Favorite Artist"])
         print("PASS: optional artist setup, Unicode autocomplete, three-artist limit, removal and persistence")
 
+        let submittingArtists = MochiArtistPreferencesModel(backend: backend)
+        submittingArtists.query = "  the weeknd  "
+        SpotifyMockProtocol.server.configure([try json(["query": "the weeknd", "artists": ["The Weeknd", "The Weekend"]])])
+        submittingArtists.submitQuery() // Return before the debounce has even started.
+        precondition(submittingArtists.isAddingFromQuery)
+        await submittingArtists.search()
+        submittingArtists.submitQuery() // Repeated Return cannot add twice.
+        precondition(submittingArtists.names == ["The Weeknd"] && submittingArtists.query.isEmpty)
+        precondition(!submittingArtists.isSearching && !submittingArtists.isAddingFromQuery)
+        precondition(SpotifyMockProtocol.server.requests().count == 1)
+        submittingArtists.query = "week"
+        SpotifyMockProtocol.server.configure([try json(["query": "week", "artists": ["The Weeknd", "The Weekend"]])])
+        submittingArtists.submitQuery(); await submittingArtists.search()
+        precondition(submittingArtists.names == ["The Weeknd"] && submittingArtists.query == "week")
+        precondition(submittingArtists.suggestions == ["The Weekend"])
+        precondition(submittingArtists.message?.contains("Choose an artist") == true)
+        submittingArtists.query = "the weeknd"; submittingArtists.submitQuery()
+        precondition(submittingArtists.message == "That artist is already added.")
+        submittingArtists.query = "The Weekend"
+        SpotifyMockProtocol.server.configure([try json(["query": "The Weekend", "artists": ["The Weekend"]])])
+        await submittingArtists.search(); submittingArtists.submitQuery()
+        precondition(submittingArtists.names == ["The Weeknd", "The Weekend"])
+        print("PASS: Return saves exact canonical artists, waits for lookup and never accepts an ambiguous first result")
+
         for bad in [try json(["query": "wrong", "artists": ["Artist"]]),
                     try json(["query": "test", "artists": ["Artist", "ARTIST"]]),
                     try json(["query": "test", "artists": ["bad\nname"]]),
@@ -100,7 +126,7 @@ struct DiscoveryChecks {
         var old = try json(["query": "old", "artists": ["Old Artist"]]); old.delay = 0.8
         SpotifyMockProtocol.server.configure([old, try json(["query": "new", "artists": ["New Artist"]])])
         let oldSearch = Task { await racingArtists.search() }
-        while !racingArtists.isSearching { try await Task.sleep(for: .milliseconds(10)) }
+        while SpotifyMockProtocol.server.requests().isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         // Changing the query invalidates a reply even if its transport can't cancel.
         racingArtists.query = "new"
         await racingArtists.search(); await oldSearch.value
@@ -113,8 +139,33 @@ struct DiscoveryChecks {
         racingArtists.query = "offline"
         SpotifyMockProtocol.server.configure([SpotifyReply(error: .cannotConnectToHost)])
         await racingArtists.search()
-        precondition(racingArtists.message?.contains("Start it") == true)
+        precondition(racingArtists.message?.contains("Start the backend") == true)
+        let failedSearchID = racingArtists.searchID
+        racingArtists.submitQuery()
+        precondition(racingArtists.searchID != failedSearchID && racingArtists.isAddingFromQuery)
+        SpotifyMockProtocol.server.configure([try json(["query": "offline", "artists": ["Offline"]])])
+        await racingArtists.search()
+        precondition(racingArtists.names == ["Offline"] && racingArtists.message == "Added Offline.")
         print("PASS: malformed artist replies, stale-query suppression, debounce cancellation and backend errors")
+
+        racingArtists.query = "Old Artist"
+        old = try json(["query": "Old Artist", "artists": ["Old Artist"]]); old.delay = 0.3
+        SpotifyMockProtocol.server.configure([old, try json(["query": "new", "artists": ["New Artist"]])])
+        racingArtists.submitQuery()
+        let pendingAdd = Task { await racingArtists.search() }
+        while SpotifyMockProtocol.server.requests().isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        racingArtists.query = "new"
+        await racingArtists.search(); await pendingAdd.value
+        precondition(racingArtists.names == ["Offline"] && racingArtists.suggestions == ["New Artist"])
+        precondition(!racingArtists.isAddingFromQuery)
+        racingArtists.query = "cancelled"
+        SpotifyMockProtocol.server.configure([])
+        racingArtists.submitQuery()
+        let cancelledAdd = Task { await racingArtists.search() }
+        try await Task.sleep(for: .milliseconds(20)); cancelledAdd.cancel(); await cancelledAdd.value
+        precondition(SpotifyMockProtocol.server.requests().isEmpty && !racingArtists.isAddingFromQuery && !racingArtists.isSearching)
+        precondition(racingArtists.names == ["Offline"])
+        print("PASS: unchanged-query retry after starting backend, and no pending additions after query edits or cancellation")
 
         let personalized = MochiRequestModel(backend: backend, artists: restoredArtists)
         SpotifyMockProtocol.server.configure([try response()])
