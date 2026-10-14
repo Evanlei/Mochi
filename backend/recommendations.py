@@ -17,6 +17,22 @@ from selection import SongSelection, SongSelector
 from storage import ProviderCache, TasteStore
 
 
+def tag_lookup_order(tracks, shortlist):
+    """Prioritize shortlisted recordings, then fill the 12-lookup budget."""
+    index_by_id = {
+        track.id: index
+        for index, track in enumerate(tracks)
+    }
+
+    preferred = [index_by_id[track.id] for track in shortlist]
+    remaining = [
+        index for index in range(len(tracks))
+        if index not in preferred
+    ]
+
+    return (preferred + remaining)[:12]
+
+
 class RecommendationService:
     def __init__(self, settings, *, client=None):
         self.settings = settings
