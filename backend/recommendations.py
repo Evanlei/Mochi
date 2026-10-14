@@ -67,6 +67,17 @@ class RecommendationService:
         async with self.request_lock:
             return await self._recommend(prompt, intent, seed=seed, exclude=exclude, artists=artists)
 
+    def _selector_for(self, tracks):
+        # Both passes share the bounded in-memory cache. Changed tag text needs
+        # fresh embeddings; unchanged text can reuse the same selector.
+        signature = tuple(track.model_dump_json() for track in tracks)
+        if signature not in self.selectors:
+            self.selectors[signature] = SongSelector(tracks)
+        self.selectors.move_to_end(signature)
+        while len(self.selectors) > 8:
+            self.selectors.popitem(last=False)
+        return self.selectors[signature]
+
     async def _recommend(self, prompt, intent, *, seed=None, exclude=(), artists=()):
         if not self.settings.lastfm_key:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
@@ -78,14 +89,27 @@ class RecommendationService:
             cached = self.cache.get("track:" + identifier)
             if cached:
                 favorites.append(CatalogTrack.model_validate_json(json.dumps(cached)))
+        # Mood adjectives remain subjective ranking cues. Only an explicit
+        # 'low/high energy' requirement demands verified energy metadata.
+        if not re.search(r"\b(?:low|high) energy\b", normalized(prompt)):
+            intent = replace(intent, energy_locked=False)
+        ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
+        broad_request = seed is None and bool(artists) and is_broad_request(prompt)
         tracks, warnings = [], []
         try:
             async with asyncio.timeout(20):
                 tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed, artists=artists)
-                tracks = [track for track in tracks if track.id not in exclude]
-                # Interleave pool labels so one provider's first genre does not
-                # consume every detail lookup. We enrich at most 12 recordings.
-                ordered = list(range(len(tracks)))[:12]
+                tracks = [track for track in tracks if track.id not in exclude
+                          and taste["tracks"].get(track.id, 0) >= 0]
+                ordered = []
+                if tracks:
+                    # This pass chooses lookup priority, never playable results.
+                    # Unknown features must get a chance to be enriched before
+                    # the final pass applies the original strict requirements.
+                    lookup_intent = replace(intent, vocals=None, energy_locked=False, bpm_min=None, bpm_max=None)
+                    preliminary = await run_in_threadpool(self._selector_for(tracks).select,
+                        ranking_prompt, lookup_intent, taste=taste, allow_unmatched=broad_request)
+                    ordered = tag_lookup_order(tracks, preliminary.tracks)
                 for index in ordered:
                     try: tracks[index] = await self.lastfm.tags(tracks[index])
                     except ProviderError as error: warnings.append(str(error))
@@ -100,24 +124,9 @@ class RecommendationService:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
                 message=warnings[0] if warnings else ("No new similar songs found. Try another song." if seed is not None else
                     "No songs found. Try another genre."), warnings=list(dict.fromkeys(warnings)))
-        # Mood adjectives remain subjective ranking cues. Only an explicit
-        # 'low/high energy' requirement demands verified energy metadata.
-        # Sample-mode behavior is unchanged.
-        if not re.search(r"\b(?:low|high) energy\b", normalized(prompt)):
-            intent = replace(intent, energy_locked=False)
-        # A tiny in-memory LRU reuses embeddings only while the source text is
-        # identical. At most eight bounded catalogs; never persist vectors.
-        signature = tuple(track.model_dump_json() for track in tracks)
-        if signature not in self.selectors:
-            self.selectors[signature] = SongSelector(tracks)
-        self.selectors.move_to_end(signature)
-        while len(self.selectors) > 8:
-            self.selectors.popitem(last=False)
         # Keep the complete request and add the inspected retrieval vocabulary:
         # e.g. "Focus" also means the "study" pool when lexical fallback runs.
-        ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
-        broad_request = seed is None and bool(artists) and is_broad_request(prompt)
-        selection = await run_in_threadpool(self.selectors[signature].select, ranking_prompt, intent,
+        selection = await run_in_threadpool(self._selector_for(tracks).select, ranking_prompt, intent,
                                            taste=taste, allow_unmatched=broad_request)
         selection.catalog_kind = "lastfm_live"
         selection.warnings = list(dict.fromkeys(warnings))

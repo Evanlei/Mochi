@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
@@ -389,6 +390,131 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.01); task.cancel()
         with self.assertRaises(asyncio.CancelledError): await task
         self.assertFalse(service.request_lock.locked())
+
+
+class LookupRankingChecks(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        def unexpected(request):
+            raise AssertionError("Unexpected external provider request")
+        self.service = RecommendationService(Settings(lastfm_key="fixture", data_directory=Path(directory)),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(unexpected)))
+        self.addAsyncCleanup(self.service.close)
+        self.enterContext(patch("selection.get_matcher", return_value=None))
+        self.rows = [track(f"Candidate {index}").model_copy(update={
+            "description": "Popular tracks on Last.fm.", "tags": ()}) for index in range(24)]
+        self.discovery = self.enterContext(patch("recommendations.discover", new_callable=AsyncMock,
+            return_value=(self.rows, [])))
+        self.service.lastfm.tags = AsyncMock(side_effect=lambda row: row)
+
+    def looked_up(self):
+        return [call.args[0].id for call in self.service.lastfm.tags.await_args_list]
+
+    async def test_late_promising_tracks_get_tags_and_changed_text_is_reranked(self):
+        for index in (20, 21):
+            self.rows[index] = self.rows[index].model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
+        class Encoder:
+            catalog_calls = 0
+            def embed_tracks(self, texts):
+                self.catalog_calls += 1
+                return [[1, 0] if "piano" in text else [0, 1] for text in texts]
+            def embed_query(self, text): return [1, 0]
+        encoder = Encoder()
+        self.service.lastfm.tags.side_effect = lambda row: row.model_copy(update={
+            "description": "Community tags: " + ("piano" if row.id == self.rows[21].id else "metal"),
+            "tags": ("piano",) if row.id == self.rows[21].id else ("metal",)})
+        with patch("selection.get_matcher", return_value=encoder):
+            result = await self.service.recommend("piano", IntentResult())
+            self.assertEqual(set(self.looked_up()[:2]), {self.rows[20].id, self.rows[21].id})
+            self.assertEqual(len(self.looked_up()), 12)
+            self.assertEqual(len(set(self.looked_up())), 12)
+            self.assertEqual([row.id for row in result.tracks], [self.rows[21].id])
+            self.assertEqual(result.method, "semantic")
+            self.assertEqual(encoder.catalog_calls, 2, "Changed tags reused stale embeddings")
+            _, saved = self.service.taste.recommendation_context(result.request_id)
+            self.assertEqual(set(saved), {self.rows[21].id}, "Preliminary results entered recommendation context")
+            self.service.lastfm.tags.reset_mock()
+            await self.service.recommend("piano", IntentResult())
+            self.assertEqual(encoder.catalog_calls, 2, "Unchanged catalogs did not reuse embeddings")
+
+    async def test_no_initial_matches_still_leaves_room_for_discovery(self):
+        self.service.lastfm.tags.side_effect = lambda row: row.model_copy(update={
+            "description": "Community tags: piano", "tags": ("piano",)})
+        result = await self.service.recommend("piano", IntentResult())
+        self.assertEqual(self.looked_up(), [row.id for row in self.rows[:12]])
+        self.assertEqual(len(result.tracks), 5)
+        self.assertEqual(result.method, "lexical")
+
+    async def test_unknown_features_can_be_checked_but_never_satisfy_final_constraints(self):
+        self.rows[20] = self.rows[20].model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
+        for prompt, intent in [("piano 80-100 BPM", IntentResult(bpm_min=80, bpm_max=100)),
+                               ("piano no vocals", IntentResult(vocals=False)),
+                               ("piano high energy", IntentResult(energy="high", energy_locked=True))]:
+            with self.subTest(prompt=prompt):
+                self.service.lastfm.tags.reset_mock()
+                result = await self.service.recommend(prompt, intent)
+                self.assertEqual(self.looked_up()[0], self.rows[20].id)
+                self.assertEqual(len(self.looked_up()), 12)
+                self.assertEqual(result.tracks, [])
+                self.assertIsNone(result.request_id)
+
+    async def test_verified_tempo_after_lookup_can_qualify_a_late_candidate(self):
+        self.rows[20] = self.rows[20].model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
+        self.service.settings = replace(self.service.settings, reccobeats_enabled=True)
+        self.service.recco.enrich = AsyncMock(side_effect=lambda row: row.model_copy(update={"bpm": 90.0})
+            if row.id == self.rows[20].id else row)
+        result = await self.service.recommend("piano 80-100 BPM", IntentResult(bpm_min=80, bpm_max=100))
+        self.assertEqual(self.looked_up()[0], self.rows[20].id)
+        self.assertEqual(self.service.recco.enrich.await_count, 12)
+        self.assertEqual([row.id for row in result.tracks], [self.rows[20].id])
+        self.assertEqual(result.tracks[0].bpm, 90)
+
+    async def test_disliked_and_previous_tracks_do_not_consume_lookups(self):
+        self.service.taste.save_request("old", "piano", [self.rows[20]])
+        self.service.taste.feedback("dislike", "old", self.rows[20].id, "dislike")
+        self.service.lastfm.tags.side_effect = lambda row: row.model_copy(update={"description": "piano"})
+        result = await self.service.recommend("piano", IntentResult(), exclude=[self.rows[0].id])
+        rejected = {self.rows[0].id, self.rows[20].id}
+        self.assertFalse(rejected.intersection(self.looked_up()))
+        self.assertFalse(rejected.intersection(row.id for row in result.tracks))
+        self.assertEqual(len(self.looked_up()), 12)
+
+    async def test_provider_errors_keep_candidates_and_warning_without_extra_lookups(self):
+        self.rows[20] = self.rows[20].model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
+        self.service.lastfm.tags.side_effect = ProviderError("Tags unavailable")
+        result = await self.service.recommend("piano", IntentResult())
+        self.assertEqual(self.looked_up()[0], self.rows[20].id)
+        self.assertEqual(len(self.looked_up()), 12)
+        self.assertEqual([row.id for row in result.tracks], [self.rows[20].id])
+        self.assertEqual(result.warnings, ["Tags unavailable"])
+
+    async def test_lookup_timeout_preserves_completed_metadata(self):
+        async def enrich(row):
+            if row.id != self.rows[0].id: await asyncio.sleep(10)
+            return row.model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
+        self.service.lastfm.tags.side_effect = enrich
+        real_timeout = asyncio.timeout
+        with patch("recommendations.asyncio.timeout", side_effect=lambda seconds: real_timeout(0.05)):
+            result = await self.service.recommend("piano", IntentResult())
+        self.assertEqual([row.id for row in result.tracks], [self.rows[0].id])
+        self.assertEqual(result.tracks[0].tags, ("piano",))
+        self.assertTrue(result.warnings)
+        self.assertFalse(self.service.request_lock.locked())
+
+    async def test_cancellation_during_lookup_does_not_save_a_preliminary_request(self):
+        started = asyncio.Event()
+        async def slow(row):
+            started.set()
+            await asyncio.sleep(10)
+        self.service.lastfm.tags.side_effect = slow
+        pending = asyncio.create_task(self.service.recommend("piano", IntentResult()))
+        await asyncio.wait_for(started.wait(), 1)
+        pending.cancel()
+        with self.assertRaises(asyncio.CancelledError): await pending
+        self.assertFalse(self.service.request_lock.locked())
+        self.assertEqual(self.service.taste.connection.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 0)
+        self.service.lastfm.tags.side_effect = lambda row: row.model_copy(update={"description": "piano"})
+        self.assertTrue((await self.service.recommend("piano", IntentResult())).tracks)
 
 
 class LiveRankingChecks(unittest.TestCase):
