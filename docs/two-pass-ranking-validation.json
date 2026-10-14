@@ -1,0 +1,62 @@
+{
+  "checked_at": "2026-10-14T03:49:38Z",
+  "live": true,
+  "probe_artists": [
+    "The Weeknd"
+  ],
+  "reccobeats_enabled": false,
+  "cases": [
+    {
+      "prompt": "Surprise me",
+      "elapsed_ms": 6679,
+      "candidate_count": 30,
+      "initial_shortlist_count": 5,
+      "prioritized_beyond_first_12": 1,
+      "tag_lookup_count": 12,
+      "returned_tracks": 5,
+      "selected_tracks_checked": 5,
+      "ranking_method": "none",
+      "warnings": []
+    },
+    {
+      "prompt": "Relaxing music",
+      "elapsed_ms": 7496,
+      "candidate_count": 45,
+      "initial_shortlist_count": 5,
+      "prioritized_beyond_first_12": 4,
+      "tag_lookup_count": 12,
+      "returned_tracks": 5,
+      "selected_tracks_checked": 2,
+      "ranking_method": "semantic",
+      "warnings": []
+    },
+    {
+      "prompt": "Something more energetic",
+      "elapsed_ms": 7410,
+      "candidate_count": 45,
+      "initial_shortlist_count": 5,
+      "prioritized_beyond_first_12": 4,
+      "tag_lookup_count": 12,
+      "returned_tracks": 5,
+      "selected_tracks_checked": 2,
+      "ranking_method": "semantic",
+      "warnings": []
+    },
+    {
+      "prompt": "Relaxing music 80-100 BPM",
+      "elapsed_ms": 6611,
+      "candidate_count": 45,
+      "initial_shortlist_count": 5,
+      "prioritized_beyond_first_12": 3,
+      "tag_lookup_count": 12,
+      "returned_tracks": 0,
+      "selected_tracks_checked": 0,
+      "ranking_method": "none",
+      "warnings": []
+    }
+  ],
+  "unknown_bpm_rejected": true,
+  "note": "Instrumented FastAPI source/contract probe with disposable storage. Relevance is ungraded; Spotify playback and saved preferences were unchanged.",
+  "checked_local_at": "2026-10-13T23:49:38-04:00",
+  "timezone": "America/New_York"
+}

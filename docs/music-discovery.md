@@ -39,8 +39,9 @@ Your request
   → explicit constraints + optional local semantic interpretation
   → favorite-artist/related-artist pools + up to two session tags + a remembered recording seed
   → deduplicate canonical artist/title identities
-  → independent tags/descriptions + optional verified tempo lookup
-  → strict requirements, relevance ranking, taste adjustments
+  → exclude disliked/previous recordings, then rank available descriptions for lookup priority
+  → song tags + optional verified tempo lookup for at most 12 prioritized recordings
+  → rerank the remaining pool with strict requirements and taste adjustments
   → at most five canonical recordings
   → optional API login: Swift checks Spotify identity and recording identifiers
   → Web API ranked playback or one confirmed track through desktop controls
@@ -50,7 +51,11 @@ Your request
 
 The initial tag vocabulary is small and inspectable in `backend/discovery.py`. It recognizes genres, instruments and several session cues. With no artist setup or remembered recording, unknown prompts ask for a genre or instrument. “Surprise me” uses your chosen artist pools when set, or pop/indie otherwise. The broad catalog remains discoverable beyond cached songs, but this is not exhaustive Spotify coverage. Provider top-track pools can miss niche or very recent music.
 
-Each request retains at most 65 candidates and enriches details for at most 12. Candidate pools get a turn in round-robin order, so one source cannot occupy the entire limit. HTTP calls have four-second timeouts, acquisition has a 12-second limit within discovery's 20-second budget, and provider rate-limit cooldowns are shared. Acquisition timeout preserves completed pools; failures can produce partial results with warnings. One local discovery request runs at a time. Ranking runs outside the API event loop. Candidate embeddings are retained only in a small in-memory LRU of eight catalogs; no vectors are stored on disk.
+Each request retains at most 65 candidates and enriches details for at most 12. Candidate pools get a turn in round-robin order before ranking. A preliminary ranking prioritizes up to five promising songs for lookup; the remaining lookup slots use acquisition order. An empty shortlist still checks candidates in acquisition order. Disliked recordings and the previous batch in **More like this** are removed before lookups.
+
+The preliminary pass defers vocal/BPM/explicit-energy requirements so missing data does not prevent a candidate from being checked. It chooses lookup priority only; its results are never returned or saved as a recommendation context. After lookups, the final pass ranks the full remaining pool and applies the original strict requirements. Unknown measurements cannot qualify, tags never become guessed BPM/vocals/energy, and only the final selection enters taste context. Because all candidates remain in the final competition, reranking can introduce songs that have not received a detailed tag lookup.
+
+HTTP calls have four-second timeouts, acquisition has a 12-second limit within discovery's 20-second acquisition/preliminary-ranking/enrichment budget, and provider rate-limit cooldowns are shared. Timeouts preserve acquired candidates and completed metadata; failures can produce partial results with warnings. One local discovery request runs at a time. Both ranking passes run outside the API event loop. The shared in-memory LRU holds at most eight catalogs, including preliminary and enriched versions. Changed source text gets fresh embeddings, while unchanged text reuses them; no vectors are stored on disk. The extra ranking pass adds inference work while keeping the provider lookup limit unchanged. Early scoring can bias which songs receive details, and sparse provider tags still limit relevance.
 
 ## Favorite-artist setup
 
@@ -157,6 +162,10 @@ backend/.venv/bin/python scripts/verify-artist-discovery.py --artist Drake --art
 ```
 
 The [artist setup source/API probe](artist-setup-validation.json) on October 12 found Drake in five autocomplete results in 265 ms. An artist-seeded **Surprise me** request returned five recordings from Drake/Frank Ocean in 7.4 seconds, with no warnings. A strict BPM request returned no recordings because tempo remained unknown. The probe used disposable cache/taste databases and did not change the app's choices or Spotify playback. Native checks cover persisted/removed choices, malformed replies, debounce cancellation and late-query responses; actual UI checks exercise Skip, typing, Add, Remove, Done and card resize. These are contract checks; relevance still needs user listening judgments.
+
+The [October 13 two-pass probe](two-pass-ranking-validation.json) used The Weeknd and disposable cache/taste storage through FastAPI. Three session requests returned five songs each in 6.7–7.5 seconds with no warnings and exactly 12 tag lookup attempts. Preliminary ranking prioritized 1/4/4 candidates beyond the old first-12 cutoff for **Surprise me** / **Relaxing music** / **Something more energetic**. Five/two/two final songs respectively had received a song-tag lookup; the others still relied on available acquisition metadata. A strict 80–100 BPM request returned no songs. No musical measurements were invented, and preferences/playback were unchanged. This is an instrumented contract check, not a relevance score.
+
+Deterministic two-pass checks verify late-candidate lookup, changed-text reranking and embedding reuse, empty-shortlist exploration, strict unknown-feature rejection, verified-tempo acceptance, dislike/previous-batch exclusions, bounded lookups, partial provider errors, timeouts and cancellation without saving preliminary context.
 
 Deterministic checks cover provider errors, invalid/oversized responses, missing features, strict filtering, deduplication, physical cache limits/expiry, rate-limit cooldowns, persistence, feedback context/idempotency/deletion, nullable Swift decoding, independent Spotify resolution, partial playback, cancellation and stale responses. Similar-song checks cover original-context validation/expiry/deletion, spoofed names and extra fields, seed/previous-batch exclusion, strict unknown BPM, no unrelated fallback, preserved drafts/results and disconnect/reset during pending refinement. Native UI checks render the compact card, verify accessible song menus and display the selected seed. Tests use fictional fixtures and fake tokens; they do not alter real Spotify playback.
 

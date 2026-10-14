@@ -13,6 +13,7 @@ The native companion, live discovery integration, independent ranking, conservat
 - Optional favorite-artist setup with Last.fm autocomplete, up to three removable choices, and a heart button to edit them later.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
 - Listening text sent asynchronously to a local FastAPI backend, with validation and confirmation.
+- Two-pass ranking checks song tags for promising preliminary matches, then reranks with the new information; at most 12 recordings get detail lookups.
 - Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
 - **More like this** in each live song's `…` menu, keeping the original request and excluding the previous batch.
 - Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
@@ -284,6 +285,8 @@ backend/.venv/bin/python scripts/verify-artist-discovery.py --artist Drake --art
 ```
 
 The [artist setup probe](docs/artist-setup-validation.json) returned five recordings from those seed artists in 7.4 seconds, with no warnings, and rejected unknown BPM under strict filtering. Native checks cover skip/edit, saved choices, autocomplete cancellation, actual Add/Remove/Done buttons and card resizing. Relevance still needs listening and user feedback.
+
+The [two-pass ranking probe](docs/two-pass-ranking-validation.json) checked The Weeknd across **Surprise me**, **Relaxing music**, and **Something more energetic** on October 13. Each returned five songs in 6.7–7.5 seconds, used 12 tag lookups, and prioritized candidates beyond the old first-12 cutoff. Unknown BPM still failed strict filtering. These are source/contract checks; the song choices have not been graded for relevance. Reranking considers the full remaining pool, so some final songs can still lack detailed song tags.
 
 The ranking evaluation defaults to clearly labeled fictional fixtures; [the discovery guide](docs/music-discovery.md) explains how to capture and manually judge real Last.fm candidates. Recorded smoke results are not a broad coverage or recommendation-accuracy claim.
 
