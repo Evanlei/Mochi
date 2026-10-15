@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import httpx
 from discovery import discover, discovery_tags
-from music import CatalogTrack, identity_key, artist_key
+from music import CatalogTrack, DiscoveryMode, identity_key, artist_key
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats, cache_lifetime
 from storage import ProviderCache, TasteStore
 from recommendations import RecommendationService
@@ -91,6 +91,26 @@ class StorageChecks(unittest.TestCase):
         self.assertNotIn(track().title.encode(), path.read_bytes())
         taste.clear()
         with self.assertRaises(LookupError): taste.recommendation_context("request")
+
+    def test_legacy_database_upgrade_preserves_feedback_and_defaults_to_balanced(self):
+        import sqlite3
+        path = Path(self.directory) / "legacy.sqlite3"
+        candidate = track()
+        with sqlite3.connect(path) as legacy:
+            legacy.execute("CREATE TABLE requests (id TEXT PRIMARY KEY, prompt TEXT NOT NULL, tracks TEXT NOT NULL, created REAL NOT NULL)")
+            legacy.execute("INSERT INTO requests VALUES (?,?,?,?)", ("old", "piano", json.dumps({candidate.id: artist_key(candidate.artist)}), self.now[0]))
+        taste = TasteStore(path, clock=lambda: self.now[0])
+        taste.feedback("like", "old", candidate.id, "like")
+        self.assertEqual(taste.recommendation_options("old"), {"mode": DiscoveryMode.BALANCED, "favorite_artist_keys": ()})
+        taste.save_request("new", "piano", [candidate], mode=DiscoveryMode.DISCOVER, favorite_artists=[artist_key(candidate.artist)])
+        taste.close()
+        taste = TasteStore(path, clock=lambda: self.now[0]); self.addCleanup(taste.close)
+        self.assertEqual(taste.snapshot()["tracks"][candidate.id], 1)
+        self.assertEqual(taste.recommendation_options("new"), {"mode": DiscoveryMode.DISCOVER, "favorite_artist_keys": (artist_key(candidate.artist),)})
+        self.assertEqual(taste.recommendation_context("old")[0], "piano")
+        self.assertNotIn(candidate.artist.encode(), path.read_bytes())
+        self.now[0] += 31 * 86400
+        with self.assertRaises(LookupError): taste.recommendation_options("new")
 
 
 class ProviderChecks(unittest.IsolatedAsyncioTestCase):
@@ -196,6 +216,28 @@ class ProviderChecks(unittest.IsolatedAsyncioTestCase):
         provider.artist_tracks.side_effect = ProviderError("Artist unavailable")
         result, warnings = await discover("piano", provider, artists=["Fixture Artist"])
         self.assertTrue(result); self.assertTrue(warnings)
+
+    async def test_modes_change_favorite_and_related_pools_within_the_same_cap(self):
+        for mode, direct_limit, neighbors in [(DiscoveryMode.FAMILIAR, 20, 1),
+                                               (DiscoveryMode.BALANCED, 10, 2),
+                                               (DiscoveryMode.DISCOVER, 5, 3)]:
+            with self.subTest(mode=mode):
+                provider = AsyncMock()
+                provider.artist_tracks.side_effect = lambda name, limit: [track(f"Hit {i}", name) for i in range(limit)]
+                provider.similar_artists.return_value = ["Neighbor A", "Neighbor B", "Neighbor C"]
+                provider.top_tracks.side_effect = lambda tag, limit: [track(f"{tag} {i}", "Session Artist") for i in range(limit)]
+                rows, warnings = await discover("piano jazz", provider, artists=["Fixture Artist"], mode=mode)
+                self.assertEqual(warnings, [])
+                provider.artist_tracks.assert_any_await("Fixture Artist", limit=direct_limit)
+                self.assertEqual(len({row.artist for row in rows if row.artist.startswith("Neighbor")}), neighbors)
+                self.assertLessEqual(len(rows), 65)
+                self.assertEqual(len({row.id for row in rows}), len(rows))
+                self.assertTrue(all(row.bpm is None and row.vocals is None and row.energy is None for row in rows))
+        # Explicit song neighborhoods retain their recording seed in every mode.
+        provider = AsyncMock(); provider.similar.return_value = [track("Similar")]
+        rows, _ = await discover("piano", provider, seed=track(), mode=DiscoveryMode.DISCOVER)
+        provider.similar.assert_awaited_once_with(track(), limit=50)
+        provider.artist_tracks.assert_not_awaited()
 
     async def test_artist_acquisition_timeout_keeps_finished_pools_and_cancellation_propagates(self):
         provider = AsyncMock()
@@ -479,6 +521,25 @@ class LookupRankingChecks(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(rejected.intersection(row.id for row in result.tracks))
         self.assertEqual(len(self.looked_up()), 12)
 
+    async def test_mode_is_returned_saved_and_needs_explicit_favorites(self):
+        for mode in (DiscoveryMode.FAMILIAR, DiscoveryMode.DISCOVER):
+            with self.subTest(mode=mode):
+                missing = await self.service.recommend("piano", IntentResult(), mode=mode)
+                self.assertEqual(missing.tracks, [])
+                self.assertIn("favorite artist", missing.message)
+                self.discovery.assert_not_awaited()
+        for mode in DiscoveryMode:
+            with self.subTest(mode=mode):
+                result = await self.service.recommend("Surprise me", IntentResult(), artists=["Fixture Artist"], mode=mode)
+                self.assertEqual(result.discovery_mode, mode)
+                self.assertTrue(result.tracks)
+                self.assertEqual(self.service.taste.recommendation_options(result.request_id), {
+                    "mode": mode, "favorite_artist_keys": (artist_key("Fixture Artist"),)})
+                strict = await self.service.recommend("piano 80-100 BPM", IntentResult(bpm_min=80, bpm_max=100),
+                    artists=["Fixture Artist"], mode=mode)
+                self.assertEqual(strict.tracks, [])
+                self.assertEqual(strict.discovery_mode, mode)
+
     async def test_provider_errors_keep_candidates_and_warning_without_extra_lookups(self):
         self.rows[20] = self.rows[20].model_copy(update={"description": "Community tags: piano", "tags": ("piano",)})
         self.service.lastfm.tags.side_effect = ProviderError("Tags unavailable")
@@ -518,6 +579,21 @@ class LookupRankingChecks(unittest.IsolatedAsyncioTestCase):
 
 
 class LiveRankingChecks(unittest.TestCase):
+    def test_modes_prefer_favorites_or_other_artists_after_relevance_and_strict_filters(self):
+        favorite, neighbor = track("Favorite"), track("Neighbor", "Neighbor Artist")
+        taste = {"tracks": {}, "artists": {}, "recent": [], "favorite_artists": {artist_key(favorite.artist)}}
+        for mode in DiscoveryMode:
+            with self.subTest(mode=mode):
+                taste["discovery_mode"] = mode
+                selected = SongSelector([neighbor, favorite]).select("piano", IntentResult(), use_semantic=False, taste=taste)
+                self.assertEqual(selected.tracks[0].id, neighbor.id if mode == DiscoveryMode.DISCOVER else favorite.id)
+                self.assertEqual(SongSelector([favorite, neighbor]).select("piano", IntentResult(bpm_min=80), use_semantic=False, taste=taste).tracks, [])
+                taste["tracks"] = {favorite.id: -1}
+                self.assertEqual([row.id for row in SongSelector([favorite, neighbor]).select("piano", IntentResult(), use_semantic=False, taste=taste).tracks], [neighbor.id])
+                taste["tracks"] = {}
+                irrelevant = favorite.model_copy(update={"description": "metal", "tags": ("metal",)})
+                self.assertEqual([row.id for row in SongSelector([irrelevant, neighbor]).select("piano", IntentResult(), use_semantic=False, taste=taste).tracks], [neighbor.id])
+
     def test_broad_artist_request_uses_taste_and_preserves_popularity_order(self):
         top, second, neighbor = track("Most Popular"), track("Second Most Popular"), track("Neighbor", "Related Artist")
         taste = {"tracks": {}, "artists": {}, "recent": [], "favorite_artists": {artist_key(top.artist)}}
@@ -576,6 +652,47 @@ class DiscoveryAPIChecks(unittest.TestCase):
                 self.assertEqual(self.client.post("/listening-request", json={"prompt": "piano", "favorite_artists": names}).status_code, 422)
             self.assertEqual(self.client.post("/listening-request", json={"prompt": "piano", "spotify_payload": {}}).status_code, 422)
             self.assertEqual(recommend.call_count, 1)
+
+    def test_mode_validation_default_and_propagation(self):
+        service = self.client.app.state.recommendations
+        async def result(prompt, intent, **options):
+            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], discovery_mode=options["mode"])
+        with patch.object(service, "recommend", new_callable=AsyncMock, side_effect=result) as recommend:
+            for mode in DiscoveryMode:
+                response = self.client.post("/listening-request", json={"prompt": "piano",
+                    "favorite_artists": ["Fixture Artist"], "discovery_mode": mode.value})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["selection"]["discovery_mode"], mode.value)
+                self.assertEqual(recommend.call_args.kwargs["mode"], mode)
+            self.client.post("/listening-request", json={"prompt": "piano"})
+            self.assertEqual(recommend.call_args.kwargs["mode"], DiscoveryMode.BALANCED)
+            for invalid in ("unknown", "Familiar", "", None, 123, True):
+                self.assertEqual(self.client.post("/listening-request", json={"prompt": "piano", "discovery_mode": invalid}).status_code, 422)
+            self.assertEqual(recommend.call_count, 4)
+
+    def test_similar_uses_original_mode_and_favorite_keys_instead_of_client_overrides(self):
+        service = self.client.app.state.recommendations
+        candidate, request_id = track(), str(uuid.uuid4())
+        key = artist_key(candidate.artist)
+        service.taste.save_request(request_id, "piano", [candidate], mode=DiscoveryMode.FAMILIAR, favorite_artists=[key])
+        body = {"request_id": request_id, "track_id": candidate.id, "title": candidate.title, "artist": candidate.artist}
+        with patch.object(service, "recommend", new_callable=AsyncMock,
+            return_value=SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], discovery_mode=DiscoveryMode.FAMILIAR)) as recommend:
+            response = self.client.post("/more-like-this", json=body)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["selection"]["discovery_mode"], "familiar")
+            self.assertEqual(recommend.call_args.kwargs["mode"], DiscoveryMode.FAMILIAR)
+            self.assertEqual(recommend.call_args.kwargs["favorite_artist_keys"], (key,))
+            self.assertEqual(self.client.post("/more-like-this", json={**body, "discovery_mode": "discover"}).status_code, 422)
+            self.assertEqual(recommend.call_count, 1)
+
+    def test_fictional_mode_does_not_claim_to_apply_live_familiarity(self):
+        self.client.app.state.settings = replace(self.client.app.state.settings, mode="sample")
+        with patch("selection.get_matcher", return_value=None):
+            response = self.client.post("/listening-request", json={"prompt": "piano", "discovery_mode": "familiar"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["selection"]["discovery_mode"], "balanced")
+        self.assertIn("live recommendations", response.json()["selection"]["warnings"][0])
 
     def test_feedback_requires_context_is_idempotent_and_can_be_erased(self):
         request_id = str(uuid.uuid4())

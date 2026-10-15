@@ -4,7 +4,7 @@ import re
 import asyncio
 from itertools import zip_longest
 
-from music import CatalogTrack, normalized
+from music import CatalogTrack, DiscoveryMode, normalized
 from providers import ProviderError
 
 # These are retrieval hints, not assertions of a recording's measured features.
@@ -49,7 +49,8 @@ def is_broad_request(prompt):
     return normalized(prompt) in {"surprise me", "anything", "any music", "music", "my favorites", "play my favorites"}
 
 
-async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
+async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=(), mode=DiscoveryMode.BALANCED):
+    mode = DiscoveryMode(mode)
     if seed is not None:
         # An explicit choice replaces generic pools. Do not substitute unrelated
         # popular tracks when this recording has no similar-track coverage.
@@ -65,6 +66,11 @@ async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
         return [], ["Add a genre or instrument, such as jazz, piano, indie, or electronic."]
     tracks, warnings = {}, []
     pools = []
+    artist_limit, neighbor_limit, tag_limit = {
+        DiscoveryMode.FAMILIAR: (20, 1, 8),
+        DiscoveryMode.BALANCED: (10, 2, 15),
+        DiscoveryMode.DISCOVER: (5, 3, 15),
+    }[mode]
     async def acquire(call):
         try: pools.append(await call)
         except ProviderError as error: warnings.append(str(error))
@@ -74,20 +80,22 @@ async def discover(prompt, lastfm, *, favorites=(), seed=None, artists=()):
         # A timeout preserves already completed pools rather than losing them.
         async with asyncio.timeout(12):
             for artist in artists[:3]:
-                await acquire(lastfm.artist_tracks(artist, limit=10))
+                await acquire(lastfm.artist_tracks(artist, limit=artist_limit))
             for tag in tags:
-                await acquire(lastfm.top_tracks(tag, limit=15 if artists else 25))
-            related, chosen = [], {normalized(name) for name in artists}
-            for artist in artists[:2]:
+                await acquire(lastfm.top_tracks(tag, limit=tag_limit if artists else 25))
+            related, neighbors, chosen = [], [], {normalized(name) for name in artists}
+            for artist in artists[:min(2, neighbor_limit)]:
                 try: names = await lastfm.similar_artists(artist, limit=3)
                 except ProviderError as error:
                     warnings.append(str(error)); continue
-                for name in names:
-                    if normalized(name) not in chosen:
+                neighbors.append(names)
+            for group in zip_longest(*neighbors):
+                for name in group:
+                    if name is not None and normalized(name) not in chosen:
                         related.append(name); chosen.add(normalized(name))
-                        if len(artists) > 1 or len(related) == 2: break
-                if len(related) == 2: break
-            for name in related[:2]:
+                        if len(related) == neighbor_limit: break
+                if len(related) == neighbor_limit: break
+            for name in related:
                 await acquire(lastfm.artist_tracks(name, limit=10))
             if favorites:
                 await acquire(lastfm.similar(favorites[-1]))

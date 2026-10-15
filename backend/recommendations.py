@@ -11,7 +11,7 @@ import httpx
 from starlette.concurrency import run_in_threadpool
 
 from discovery import discover, discovery_tags, is_broad_request
-from music import CatalogTrack, artist_key, identity_key, normalized
+from music import CatalogTrack, DiscoveryMode, artist_key, identity_key, normalized
 from providers import LastFM, ProviderError, ProviderHTTP, ReccoBeats
 from selection import SongSelection, SongSelector
 from storage import ProviderCache, TasteStore
@@ -58,14 +58,16 @@ class RecommendationService:
         seed = CatalogTrack(id=track_id, title=title, artist=artist, description="User-selected Last.fm discovery seed.")
         return prompt, seed, tuple(previous)
 
-    async def recommend(self, prompt, intent, *, seed=None, exclude=(), artists=()):
+    async def recommend(self, prompt, intent, *, seed=None, exclude=(), artists=(), mode=DiscoveryMode.BALANCED, favorite_artist_keys=None):
+        mode = DiscoveryMode(mode)
         if intent.clarification:
-            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message=intent.clarification)
+            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message=intent.clarification, discovery_mode=mode)
         # This is a local single-user backend; bound concurrent provider work.
         if self.request_lock.locked():
-            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message="Another discovery request is finishing. Try again shortly.")
+            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], message="Another discovery request is finishing. Try again shortly.", discovery_mode=mode)
         async with self.request_lock:
-            return await self._recommend(prompt, intent, seed=seed, exclude=exclude, artists=artists)
+            return await self._recommend(prompt, intent, seed=seed, exclude=exclude, artists=artists,
+                                         mode=mode, favorite_artist_keys=favorite_artist_keys)
 
     def _selector_for(self, tracks):
         # Both passes share the bounded in-memory cache. Changed tag text needs
@@ -78,12 +80,16 @@ class RecommendationService:
             self.selectors.popitem(last=False)
         return self.selectors[signature]
 
-    async def _recommend(self, prompt, intent, *, seed=None, exclude=(), artists=()):
+    async def _recommend(self, prompt, intent, *, seed=None, exclude=(), artists=(), mode=DiscoveryMode.BALANCED, favorite_artist_keys=None):
         if not self.settings.lastfm_key:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
-                message="Add LASTFM_API_KEY to backend/.env, then restart the backend.")
+                message="Add LASTFM_API_KEY to backend/.env, then restart the backend.", discovery_mode=mode)
         taste = self.taste.snapshot()
-        taste["favorite_artists"] = {artist_key(name) for name in artists}
+        taste["favorite_artists"] = set(favorite_artist_keys) if favorite_artist_keys is not None else {artist_key(name) for name in artists}
+        taste["discovery_mode"] = mode
+        if mode != DiscoveryMode.BALANCED and not taste["favorite_artists"]:
+            return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[], discovery_mode=mode,
+                message="Add at least one favorite artist to use Familiar or Discover.")
         favorites = []
         for identifier in taste["favorites"]:
             cached = self.cache.get("track:" + identifier)
@@ -98,7 +104,7 @@ class RecommendationService:
         tracks, warnings = [], []
         try:
             async with asyncio.timeout(20):
-                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed, artists=artists)
+                tracks, warnings = await discover(prompt, self.lastfm, favorites=favorites, seed=seed, artists=artists, mode=mode)
                 tracks = [track for track in tracks if track.id not in exclude
                           and taste["tracks"].get(track.id, 0) >= 0]
                 ordered = []
@@ -123,14 +129,16 @@ class RecommendationService:
         if not tracks:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
                 message=warnings[0] if warnings else ("No new similar songs found. Try another song." if seed is not None else
-                    "No songs found. Try another genre."), warnings=list(dict.fromkeys(warnings)))
+                    "No songs found. Try another genre."), warnings=list(dict.fromkeys(warnings)), discovery_mode=mode)
         # Keep the complete request and add the inspected retrieval vocabulary:
         # e.g. "Focus" also means the "study" pool when lexical fallback runs.
         selection = await run_in_threadpool(self._selector_for(tracks).select, ranking_prompt, intent,
                                            taste=taste, allow_unmatched=broad_request)
         selection.catalog_kind = "lastfm_live"
+        selection.discovery_mode = mode
         selection.warnings = list(dict.fromkeys(warnings))
         if selection.tracks:
             selection.request_id = str(uuid.uuid4())
-            self.taste.save_request(selection.request_id, prompt, selection.tracks)
+            self.taste.save_request(selection.request_id, prompt, selection.tracks,
+                                    mode=mode, favorite_artists=taste["favorite_artists"])
         return selection

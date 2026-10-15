@@ -3,9 +3,16 @@
 import hashlib
 import re
 import unicodedata
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class DiscoveryMode(StrEnum):
+    FAMILIAR = "familiar"
+    BALANCED = "balanced"
+    DISCOVER = "discover"
 
 
 def normalized(value):

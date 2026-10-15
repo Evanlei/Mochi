@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from catalog import load_catalog
-from music import CatalogTrack, artist_key
+from music import CatalogTrack, DiscoveryMode, artist_key
 from intent import IntentResult
 from semantic import get_matcher
 
@@ -34,6 +34,7 @@ class SongSelection(BaseModel):
     message: str | None = None
     request_id: str | None = None
     warnings: list[str] = []
+    discovery_mode: DiscoveryMode = DiscoveryMode.BALANCED
 
 
 class SongSelector:
@@ -120,7 +121,15 @@ class SongSelector:
             bonus = 0.08 if not intent.energy_locked and intent.energy == track.energy else 0.0
             personal = 0.12 * max(0, taste["tracks"].get(track.id, 0))
             personal += max(-0.08, min(0.08, 0.04 * taste["artists"].get(artist_key(track.artist), 0)))
-            personal += 0.06 if artist_key(track.artist) in taste.get("favorite_artists", ()) else 0
+            favorites = taste.get("favorite_artists", ())
+            familiar = artist_key(track.artist) in favorites
+            mode = DiscoveryMode(taste.get("discovery_mode", DiscoveryMode.BALANCED))
+            if mode == DiscoveryMode.FAMILIAR:
+                personal += 0.12 if familiar else 0
+            elif mode == DiscoveryMode.DISCOVER and favorites:
+                personal += -0.06 if familiar else 0.06
+            else:
+                personal += 0.06 if familiar else 0
             personal -= min(0.15, 0.03 * taste["recent"].count(track.id))
             values = track.model_dump()
             if self.catalog_kind == "fictional_sample": values["source"] = "fictional_sample"

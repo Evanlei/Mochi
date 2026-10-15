@@ -4,7 +4,9 @@ import json
 import sqlite3
 import threading
 import time
+import re
 from pathlib import Path
+from music import DiscoveryMode
 
 
 class ProviderCache:
@@ -80,15 +82,24 @@ class TasteStore:
             CREATE TABLE IF NOT EXISTS feedback (event_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, track_id TEXT NOT NULL, artist_key TEXT NOT NULL, event TEXT NOT NULL, created REAL NOT NULL);
             CREATE INDEX IF NOT EXISTS feedback_track ON feedback(track_id, created);
         """)
+        # Preserve existing feedback and recommendation contexts on upgrade.
+        if "options" not in {row[1] for row in self.connection.execute("PRAGMA table_info(requests)")}:
+            self.connection.execute("ALTER TABLE requests ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
+            self.connection.commit()
 
-    def save_request(self, request_id, prompt, tracks):
+    def save_request(self, request_id, prompt, tracks, *, mode=DiscoveryMode.BALANCED, favorite_artists=()):
         from music import artist_key
         # Metadata names stay in the disposable provider cache. These keys are
         # sufficient for feedback and artist affinity when new candidates arrive.
         entries = {track.id: artist_key(track.artist) for track in tracks}
+        keys = sorted(set(favorite_artists))
+        if len(keys) > 3 or any(not re.fullmatch(r"[0-9a-f]{64}", key) for key in keys):
+            raise ValueError("Invalid favorite artist context")
+        options = json.dumps({"discovery_mode": DiscoveryMode(mode).value, "favorite_artists": keys})
         with self.lock, self.connection:
             self.connection.execute("DELETE FROM requests WHERE created < ?", (self.clock() - 30 * 86400,))
-            self.connection.execute("INSERT INTO requests VALUES (?,?,?,?)", (request_id, prompt, json.dumps(entries), self.clock()))
+            self.connection.execute("INSERT INTO requests (id,prompt,tracks,created,options) VALUES (?,?,?,?,?)",
+                (request_id, prompt, json.dumps(entries), self.clock(), options))
 
     def feedback(self, event_id, request_id, track_id, event):
         with self.lock, self.connection:
@@ -128,6 +139,16 @@ class TasteStore:
                 favorites.append(track)
         return {"tracks": {key: value[1] for key, value in preferences.items()},
                 "artists": artists, "recent": recent[-20:], "favorites": favorites[-3:]}
+
+    def recommendation_options(self, request_id):
+        with self.lock:
+            row = self.connection.execute("SELECT options FROM requests WHERE id=? AND created>=?",
+                (request_id, self.clock() - 30 * 86400)).fetchone()
+        if not row:
+            raise LookupError("This recommendation has expired. Send a new listening request.")
+        options = json.loads(row[0])
+        return {"mode": DiscoveryMode(options.get("discovery_mode", "balanced")),
+                "favorite_artist_keys": tuple(options.get("favorite_artists", []))}
 
     def clear(self):
         with self.lock, self.connection:

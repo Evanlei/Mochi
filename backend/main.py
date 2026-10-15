@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 import sqlite3
 import asyncio
 import unicodedata
-from music import normalized
+from music import DiscoveryMode, normalized
 from providers import ProviderError
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ class ListeningRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     prompt: str = Field(min_length=1, max_length=500)
+    discovery_mode: DiscoveryMode = DiscoveryMode.BALANCED
     favorite_artists: list[Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
 
     @field_validator("favorite_artists")
@@ -90,6 +91,7 @@ async def more_like_this(request: SimilarRequest):
     try:
         prompt, seed, previous = await run_in_threadpool(service.similar_context,
             str(request.request_id), request.track_id, request.title, request.artist)
+        options = await run_in_threadpool(service.taste.recommendation_options, str(request.request_id))
     except LookupError:
         raise HTTPException(status_code=409, detail="This recommendation has expired. Send a new listening request.") from None
     except ValueError:
@@ -98,7 +100,7 @@ async def more_like_this(request: SimilarRequest):
         raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
     parsed = await run_in_threadpool(interpret_request, prompt)
     try:
-        selection = await service.recommend(prompt, parsed, seed=seed, exclude=previous)
+        selection = await service.recommend(prompt, parsed, seed=seed, exclude=previous, **options)
     except (OSError, ValueError, sqlite3.Error):
         raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
     return ListeningResponse(received_prompt=prompt,
@@ -111,8 +113,11 @@ async def receive_listening_request(request: ListeningRequest):
     try:
         if app.state.settings.mode == "sample":
             selection = get_selector().select(request.prompt, parsed)
+            if request.discovery_mode != DiscoveryMode.BALANCED:
+                selection.warnings.append("Familiar and Discover apply to live recommendations only.")
         else:
-            selection = await app.state.recommendations.recommend(request.prompt, parsed, artists=request.favorite_artists)
+            selection = await app.state.recommendations.recommend(request.prompt, parsed,
+                artists=request.favorite_artists, mode=request.discovery_mode)
     except (OSError, ValueError, sqlite3.Error):
         detail = "Sample catalog unavailable. Restart the backend after checking the catalog." if app.state.settings.mode == "sample" else "Music discovery storage is unavailable. Check backend/.data and restart the backend."
         raise HTTPException(status_code=503, detail=detail) from None
