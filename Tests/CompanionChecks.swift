@@ -460,7 +460,7 @@ struct CompanionChecks {
         let artistDefaults = UserDefaults(suiteName: artistSuite)!
         defer { artistDefaults.removePersistentDomain(forName: artistSuite) }
         let artists = MochiArtistPreferencesModel(backend: MochiBackendClient(session: session), defaults: artistDefaults)
-        let artistRequest = MochiRequestModel(backend: MochiBackendClient(session: session), artists: artists)
+        let artistRequest = MochiRequestModel(backend: MochiBackendClient(session: session), artists: artists, defaults: artistDefaults)
         let artistCompanion = MochiCompanionController(defaults: artistDefaults, request: artistRequest)
         artistCompanion.start(); artistCompanion.toggleCard()
         defer { artistCompanion.stop() }
@@ -470,6 +470,9 @@ struct CompanionChecks {
         guard let skip = button("Skip for now", in: artistCard.contentView!) else { fatalError("Setup cannot be skipped") }
         precondition(press(skip)); try await Task.sleep(for: .milliseconds(100))
         precondition(!artists.isPresented && artistCard.frame.size == MochiCompanionCard.size)
+        guard let unavailableMode = button("Familiar recommendations", in: artistCard.contentView!) else { fatalError("No discovery choices") }
+        _ = press(unavailableMode)
+        precondition(artistRequest.discoveryMode == .balanced, "Familiar should require a favorite artist")
         guard let edit = button("Edit favorite artists", in: artistCard.contentView!) else { fatalError("No favorite editor button") }
         precondition(press(edit)); try await Task.sleep(for: .milliseconds(100))
         for name in ["Fixture Artist", "Second Fixture Artist", "Third Fixture Artist"] {
@@ -530,8 +533,68 @@ struct CompanionChecks {
         precondition(MochiArtistPreferencesModel(defaults: artistDefaults).names == artists.names)
         precondition(artistCard.frame.size == MochiCompanionCard.size)
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(artistCard.frame) })
+
+        for mode in MochiDiscoveryMode.allCases {
+            guard let modeButton = button("\(mode.title) recommendations", in: artistCard.contentView!) else { fatalError("Mode button is not accessible") }
+            precondition(press(modeButton)); try await Task.sleep(for: .milliseconds(60))
+            precondition(artistRequest.discoveryMode == mode)
+            precondition(MochiRequestModel(artists: artists, defaults: artistDefaults).discoveryMode == mode)
+            precondition(artistCard.frame.size == MochiCompanionCard.size)
+            if let directory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let view = artistCard.contentView!
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory).appendingPathComponent("mode-\(mode.rawValue).png"))
+            }
+        }
+        precondition(press(button("Familiar recommendations", in: artistCard.contentView!)!))
+        let modeRow: [String: Any] = ["id": "lastfm-" + String(repeating: "a", count: 64), "title": "Fixture Session",
+            "artist": "Fixture Artist", "bpm": NSNull(), "vocals": NSNull(), "energy": NSNull(), "score": 0.8,
+            "description": "Community tags: piano", "source": "lastfm", "source_url": "https://www.last.fm/music/Fixture+Artist"]
+        let modeData = try JSONSerialization.data(withJSONObject: ["received_prompt": "piano", "selection": [
+            "catalog_kind": "lastfm_live", "method": "lexical", "request_id": UUID().uuidString,
+            "tracks": [modeRow], "warnings": [], "discovery_mode": "familiar"]])
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: modeData, delay: 0.2)])
+        guard let modeInput = artistCard.firstResponder as? NSTextInputClient else { fatalError("Mode choice lost composer focus") }
+        modeInput.insertText("piano", replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await Task.sleep(for: .milliseconds(40))
+        precondition(press(button("Send listening request", in: artistCard.contentView!)!))
+        try await Task.sleep(for: .milliseconds(40))
+        _ = press(button("Discover recommendations", in: artistCard.contentView!)!)
+        precondition(artistRequest.discoveryMode == .familiar, "Mode changed while its request was pending")
+        let modeDeadline = Date().addingTimeInterval(3)
+        while artistRequest.isSending {
+            precondition(Date() < modeDeadline); try await Task.sleep(for: .milliseconds(10))
+        }
+        let sentMode = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+        precondition(sentMode["discovery_mode"] as? String == "familiar")
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(findIdentifier("mochiAppliedDiscoveryMode", in: artistCard.contentView!) != nil)
+        precondition(artistRequest.selection?.discoveryMode == .familiar)
+        precondition(press(button("Discover recommendations", in: artistCard.contentView!)!))
+        precondition(artistRequest.discoveryMode == .discover && artistRequest.selection?.discoveryMode == .familiar)
+        if let directory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+            try await Task.sleep(for: .milliseconds(100))
+            let view = artistCard.contentView!
+            view.layoutSubtreeIfNeeded()
+            let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: image)
+            try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory).appendingPathComponent("mode-results.png"))
+        }
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: modeData)])
+        artistRequest.moreLikeThis(artistRequest.selection!.tracks[0])
+        while artistRequest.isSending { try await Task.sleep(for: .milliseconds(10)) }
+        let similarMode = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+        precondition(similarMode["discovery_mode"] == nil && similarMode["request_id"] != nil)
+        precondition(artistRequest.selection?.discoveryMode == .familiar && artistRequest.discoveryMode == .discover)
+        artistRequest.reset()
+        precondition(artistRequest.discoveryMode == .discover)
+        artists.clear()
+        precondition(artistRequest.discoveryMode == .balanced)
         artistCompanion.stop()
         print("PASS: native artist onboarding, autocomplete, Return/visible Add/result/Remove/Done, card resizing and saved choices")
+        print("PASS: native familiarity choices, saved mode, pending-request lock, applied-mode label and original-mode refinement")
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })

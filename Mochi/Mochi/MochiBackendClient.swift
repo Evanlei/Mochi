@@ -1,11 +1,25 @@
 import Foundation
 
+enum MochiDiscoveryMode: String, Codable, CaseIterable, Identifiable {
+    case familiar, balanced, discover
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var detail: String {
+        switch self {
+        case .familiar: return "Lean toward your saved favorite artists."
+        case .balanced: return "Mix favorite artists with related discoveries."
+        case .discover: return "Lean toward artists outside your saved favorites."
+        }
+    }
+}
+
 struct MochiListeningRequest: Encodable {
     let prompt: String
     let favoriteArtists: [String]?
+    let discoveryMode: MochiDiscoveryMode?
 
     enum CodingKeys: String, CodingKey {
-        case prompt, favoriteArtists = "favorite_artists"
+        case prompt, favoriteArtists = "favorite_artists", discoveryMode = "discovery_mode"
     }
 }
 
@@ -83,11 +97,13 @@ struct MochiSongSelection: Decodable {
     let message: String?
     let requestID: String?
     let warnings: [String]?
+    let discoveryMode: MochiDiscoveryMode?
 
     enum CodingKeys: String, CodingKey {
         case catalogKind = "catalog_kind"
         case method, tracks, message
         case requestID = "request_id", warnings
+        case discoveryMode = "discovery_mode"
     }
 }
 
@@ -150,7 +166,7 @@ struct MochiBackendClient {
             delegate: MochiBackendRedirectDelegate(), delegateQueue: nil)
     }
 
-    func send(prompt: String, favoriteArtists: [String] = []) async throws -> MochiListeningResponse {
+    func send(prompt: String, favoriteArtists: [String] = [], discoveryMode: MochiDiscoveryMode = .balanced) async throws -> MochiListeningResponse {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.unicodeScalars.count <= 500 else {
             throw MochiBackendError.invalidPrompt
@@ -160,7 +176,8 @@ struct MochiBackendClient {
             throw MochiBackendError.invalidArtists
         }
         return try await receive(path: "listening-request", body: JSONEncoder().encode(MochiListeningRequest(
-            prompt: text, favoriteArtists: favoriteArtists.isEmpty ? nil : favoriteArtists)),
+            prompt: text, favoriteArtists: favoriteArtists.isEmpty ? nil : favoriteArtists,
+            discoveryMode: discoveryMode == .balanced ? nil : discoveryMode)),
                                  expectedPrompt: text, similar: false)
     }
 

@@ -99,7 +99,7 @@ final class MochiCompanionController: ObservableObject {
     init(defaults: UserDefaults = .standard, search: SpotifySearchModel? = nil, request: MochiRequestModel? = nil) {
         self.defaults = defaults
         self.search = search ?? SpotifySearchModel()
-        self.request = request ?? MochiRequestModel(artists: MochiArtistPreferencesModel(defaults: defaults))
+        self.request = request ?? MochiRequestModel(artists: MochiArtistPreferencesModel(defaults: defaults), defaults: defaults)
         isVisible = defaults.object(forKey: "mochi.companion.visible") as? Bool ?? true
     }
 
@@ -120,7 +120,7 @@ final class MochiCompanionController: ObservableObject {
         let card = CompanionPanel(contentRect: NSRect(origin: .zero, size: cardSize), acceptsKeyboard: true)
         card.title = "Talk to Mochi"
         let cardView = NSHostingView(rootView: MochiCompanionCard(request: request, search: search) { [weak self] in self?.closeCard() })
-        // This controller owns the two panel sizes; stale intrinsic constraints must not pin it to 180 points.
+        // This controller owns panel sizes; stale intrinsic constraints must not pin the compact height.
         cardView.sizingOptions = []
         card.contentView = cardView
         cardPanel = card

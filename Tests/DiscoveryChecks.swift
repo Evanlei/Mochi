@@ -34,10 +34,11 @@ struct DiscoveryChecks {
             try JSONDecoder().decode(SpotifySearchTrack.self, from: JSONSerialization.data(withJSONObject: value))
         }
         func json(_ value: Any) throws -> SpotifyReply { SpotifyReply(data: try JSONSerialization.data(withJSONObject: value)) }
-        func response(_ prompt: String = "piano", tracks: [[String: Any]]? = nil, kind: String = "lastfm_live") throws -> SpotifyReply {
-            try json(["received_prompt": prompt, "intent": ["vocals": NSNull(), "energy": NSNull()],
-                "selection": ["catalog_kind": kind, "method": "lexical", "request_id": requestID,
-                    "tracks": tracks ?? [source()], "warnings": [], "message": NSNull()]])
+        func response(_ prompt: String = "piano", tracks: [[String: Any]]? = nil, kind: String = "lastfm_live", mode: String? = nil) throws -> SpotifyReply {
+            var selection: [String: Any] = ["catalog_kind": kind, "method": "lexical", "request_id": requestID,
+                "tracks": tracks ?? [source()], "warnings": [], "message": NSNull()]
+            if let mode { selection["discovery_mode"] = mode }
+            return try json(["received_prompt": prompt, "intent": ["vocals": NSNull(), "energy": NSNull()], "selection": selection])
         }
         func state() throws -> SpotifyReply {
             try json(["is_playing": true, "device": ["id": "active-device", "is_restricted": false],
@@ -173,11 +174,41 @@ struct DiscoveryChecks {
         let profileBody = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
         precondition(profileBody["favorite_artists"] as? [String] == ["音楽", "Favorite Artist"])
         precondition(Set(profileBody.keys) == ["prompt", "favorite_artists"])
+
+        let modes = MochiRequestModel(backend: backend, artists: restoredArtists, defaults: defaults)
+        precondition(modes.discoveryMode == .balanced)
+        modes.discoveryMode = .familiar
+        var delayedMode = try response(mode: "familiar"); delayedMode.delay = 0.1
+        SpotifyMockProtocol.server.configure([delayedMode])
+        modes.submit("piano")
+        modes.discoveryMode = .discover // A later choice cannot change an in-flight request.
+        try await settle(modes)
+        let modeBody = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+        precondition(modeBody["discovery_mode"] as? String == "familiar")
+        precondition(modes.selection?.discoveryMode == .familiar && modes.discoveryMode == .discover)
+        precondition(MochiRequestModel(artists: restoredArtists, defaults: defaults).discoveryMode == .discover)
+        modes.reset()
+        precondition(modes.discoveryMode == .discover)
+        for mode in MochiDiscoveryMode.allCases {
+            SpotifyMockProtocol.server.configure([try response(mode: mode.rawValue)])
+            let result = try await backend.send(prompt: "piano", favoriteArtists: restoredArtists.names, discoveryMode: mode)
+            let body = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+            precondition(body["discovery_mode"] as? String == (mode == .balanced ? nil : mode.rawValue))
+            precondition(result.selection?.discoveryMode == mode)
+        }
+        SpotifyMockProtocol.server.configure([try response(mode: "unknown")])
+        do { _ = try await backend.send(prompt: "piano"); fatalError("Unknown response mode accepted") }
+        catch MochiBackendError.invalidResponse {}
+        defaults.set("corrupt", forKey: "mochi.taste.discovery-mode")
+        precondition(MochiRequestModel(artists: restoredArtists, defaults: defaults).discoveryMode == .balanced)
+        print("PASS: typed discovery modes, default compatibility, persistence, in-flight capture and response validation")
+
         personalized.reset()
         precondition(restoredArtists.names.count == 2)
         SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
         personalized.clearTaste(); try await settle(personalized)
         precondition(restoredArtists.names.isEmpty && MochiArtistPreferencesModel(defaults: defaults).names.isEmpty)
+        precondition(modes.discoveryMode == .balanced)
         print("PASS: explicit favorites accompany discovery, survive request reset, and clear with taste memory")
 
         let track = try decodeSource(source())

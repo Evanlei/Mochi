@@ -7,6 +7,9 @@ import SwiftUI
 @MainActor
 final class MochiRequestModel: ObservableObject {
     let artists: MochiArtistPreferencesModel
+    @Published var discoveryMode: MochiDiscoveryMode = .balanced {
+        didSet { defaults?.set(discoveryMode.rawValue, forKey: Self.modeKey) }
+    }
     @Published var isSearchPresented = false
     @Published var draft = ""
     @Published private(set) var preferences: [String] = []
@@ -25,6 +28,9 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var similarTo: String?
 
     private let backend: MochiBackendClient
+    private let defaults: UserDefaults?
+    private static let modeKey = "mochi.taste.discovery-mode"
+    private var artistsSubscription: AnyCancellable?
     private var sendTask: Task<Void, Never>?
     private var requestGeneration = UUID()
     private let resolver: SpotifySearchClient
@@ -37,10 +43,17 @@ final class MochiRequestModel: ObservableObject {
     private var lastSelectedID: String?
     private var currentPrompt: String?
 
-    init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil, artists: MochiArtistPreferencesModel? = nil) {
+    init(backend: MochiBackendClient? = nil, resolver: SpotifySearchClient? = nil, artists: MochiArtistPreferencesModel? = nil, defaults: UserDefaults? = nil) {
         self.backend = backend ?? MochiBackendClient()
         self.resolver = resolver ?? SpotifySearchClient()
         self.artists = artists ?? MochiArtistPreferencesModel(backend: backend)
+        self.defaults = defaults
+        if !self.artists.names.isEmpty, let saved = defaults?.string(forKey: Self.modeKey), let mode = MochiDiscoveryMode(rawValue: saved) {
+            discoveryMode = mode
+        }
+        artistsSubscription = self.artists.$names.dropFirst().sink { [weak self] names in
+            if names.isEmpty { self?.discoveryMode = .balanced }
+        }
     }
 
     func configure(using auth: SpotifyAuthModel, playback: SpotifyPlaybackModel) {
@@ -93,13 +106,14 @@ final class MochiRequestModel: ObservableObject {
         reply = seed.map { "Finding songs like \($0.title)…" } ?? "Sending your request…"
         let generation = requestGeneration
         let favoriteArtists = artists.names
+        let mode = favoriteArtists.isEmpty ? MochiDiscoveryMode.balanced : discoveryMode
         sendTask = Task { [weak self, backend] in
             do {
                 let response: MochiListeningResponse
                 if let seed, let seedRequestID {
                     response = try await backend.moreLikeThis(seed, requestID: seedRequestID, prompt: text)
                 } else {
-                    response = try await backend.send(prompt: text, favoriteArtists: favoriteArtists)
+                    response = try await backend.send(prompt: text, favoriteArtists: favoriteArtists, discoveryMode: mode)
                 }
                 try Task.checkCancellation()
                 guard let self, self.requestGeneration == generation else { return }
@@ -329,7 +343,7 @@ final class MochiRequestModel: ObservableObject {
 // MARK: - Companion card
 
 struct MochiCompanionCard: View {
-    static let size = CGSize(width: 300, height: 180)
+    static let size = CGSize(width: 300, height: 200)
     static let searchSize = CGSize(width: 300, height: 340)
     static let artistSize = CGSize(width: 300, height: 320)
     static func artistEditorSize(count: Int) -> CGSize {
@@ -391,6 +405,26 @@ struct MochiCompanionCard: View {
             }
             .buttonStyle(.plain)
             .font(.system(size: 10))
+
+            if !artists.isPresented && !request.isSearchPresented {
+                HStack(spacing: 3) {
+                    ForEach(MochiDiscoveryMode.allCases) { mode in
+                        Button { request.discoveryMode = mode } label: {
+                            Text(mode.title).font(.system(size: 10, weight: request.discoveryMode == mode ? .semibold : .regular))
+                                .frame(maxWidth: .infinity).padding(.vertical, 5)
+                                .background(request.discoveryMode == mode ? Color(hex: 0xDCE8D9).opacity(0.8) : Color.clear, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(mode != .balanced && artists.names.isEmpty)
+                        .help(artists.names.isEmpty && mode != .balanced ? "Add a favorite artist with the heart button first." : mode.detail)
+                        .accessibilityLabel("\(mode.title) recommendations")
+                        .accessibilityValue(request.discoveryMode == mode ? "Selected" : "Not selected")
+                        .accessibilityIdentifier("mochiDiscoveryMode-\(mode.rawValue)")
+                    }
+                }
+                .disabled(request.isSending || request.isStarting || request.feedbackBusy)
+                .accessibilityElement(children: .contain).accessibilityLabel("Music discovery preference")
+            }
 
             if artists.isPresented {
                 MochiArtistPreferencesView(artists: artists)
@@ -507,6 +541,11 @@ struct MochiCompanionCard: View {
                         .accessibilityIdentifier("mochiDiscoverySource")
                         .help(request.selection?.warnings?.joined(separator: "\n") ?? "Independently ranked by Mochi")
                     Spacer()
+                    if let mode = request.selection?.discoveryMode {
+                        Text("\(mode.title) picks").font(.system(size: 9)).foregroundStyle(Color.mochiMuted)
+                            .help("The mode used for these songs. The choice above applies to your next request.")
+                            .accessibilityIdentifier("mochiAppliedDiscoveryMode")
+                    }
                     if request.isConnected {
                         Button(request.usesDesktopPlayer ? "Play first match" : "Play matches") { request.playMatches() }
                             .buttonStyle(.plain).disabled(!request.canPlayMatches)
