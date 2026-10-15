@@ -24,10 +24,14 @@ Mochi sends listening text from the native card to Python, interprets preference
 `POST /listening-request` accepts:
 
 ```json
-{"prompt": "relaxing music for studying", "favorite_artists": ["Frank Ocean"]}
+{"prompt": "relaxing music for studying", "favorite_artists": ["Frank Ocean"], "discovery_mode": "familiar"}
 ```
 
 `favorite_artists` is optional and contains up to three distinct, manually chosen artist names. Native preferences save those choices on the Mac; the backend uses them for this request's Last.fm pools and small ranking adjustments. `POST /artist-search` accepts `{"query":"Frank"}` and returns the same query plus up to five Last.fm artist names. Setup can be skipped and does not require Spotify login. See [favorite setup and acquisition](music-discovery.md#favorite-artist-setup) for limits and failure behavior.
+
+`discovery_mode` is optional: `familiar`, `balanced` (the default), or `discover`. Invalid values receive HTTP 422. Live Familiar/Discover without favorites return an empty selection and instructions to add an artist. `selection.discovery_mode` echoes the applied mode, including empty selections. Swift omits Balanced when encoding and accepts older responses without the field. Fictional sample mode reports Balanced and warns that familiarity controls apply to live music.
+
+Successful live requests save the mode and up to three opaque favorite-artist keys alongside the original request context. `/more-like-this` recovers these options from the backend; clients cannot override them. Existing databases gain a defaulted options column without deleting feedback, and old contexts use Balanced. Options expire/delete with the context. Native preferences retain the next-request mode on this Mac; clearing favorite artists resets it to Balanced.
 
 It returns HTTP 200:
 
@@ -39,6 +43,7 @@ It returns HTTP 200:
   "selection": {
     "catalog_kind": "fictional_sample",
     "method": "semantic",
+    "discovery_mode": "balanced",
     "tracks": [],
     "message": null
   }

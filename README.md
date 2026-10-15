@@ -11,6 +11,7 @@ The native companion, live discovery integration, independent ranking, conservat
 - A draggable sage Mochi character, matching the supplied SVG artwork.
 - Click Mochi to open or close a compact listening-request card.
 - Optional favorite-artist setup with Last.fm autocomplete, up to three removable choices, and a heart button to edit them later.
+- Familiar / Balanced / Discover choices adjust artist pools and ranking, remember your preference, and preserve the original mode for **More like this**.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
 - Listening text sent asynchronously to a local FastAPI backend, with validation and confirmation.
 - Two-pass ranking checks song tags for promising preliminary matches, then reranks with the new information; at most 12 recordings get detail lookups.
@@ -135,6 +136,7 @@ Mochi breathes with a gentle change in body shape, blinks, and glances around, w
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
 - Use the **heart** to add/remove favorite artists. One is enough; choices save immediately on this Mac. Adding an artist triggers Mochi's squishy greeting. The setup card shrinks after three choices.
+- Choose **Familiar** to lean toward saved artists, **Balanced** for the existing mix of candidate sources, or **Discover** to lean toward artists outside your favorites. Familiar/Discover need a saved artist. The choice applies to the next request; existing results keep a label showing their original mode. These are preferences, not fixed ratios or a guarantee that you have/haven't heard a recording.
 - Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
 - Mood submissions show live matches, a setup/constraint message, or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
 - Use thumbs up/down to save taste feedback. Right-click the reset arrow and choose **Forget taste memory** to delete it. **Play matches** retries matching after connecting Spotify.
@@ -287,6 +289,14 @@ backend/.venv/bin/python scripts/verify-artist-discovery.py --artist Drake --art
 The [artist setup probe](docs/artist-setup-validation.json) returned five recordings from those seed artists in 7.4 seconds, with no warnings, and rejected unknown BPM under strict filtering. Native checks cover skip/edit, saved choices, autocomplete cancellation, actual Add/Remove/Done buttons and card resizing. Relevance still needs listening and user feedback.
 
 The [two-pass ranking probe](docs/two-pass-ranking-validation.json) checked The Weeknd across **Surprise me**, **Relaxing music**, and **Something more energetic** on October 13. Each returned five songs in 6.7–7.5 seconds, used 12 tag lookups, and prioritized candidates beyond the old first-12 cutoff. Unknown BPM still failed strict filtering. These are source/contract checks; the song choices have not been graded for relevance. Reranking considers the full remaining pool, so some final songs can still lack detailed song tags.
+
+To verify live discovery modes without changing your profile or playback:
+
+```bash
+backend/.venv/bin/python scripts/verify-discovery-modes.py --artist 'The Weeknd'
+```
+
+The [October 15 mode probe](docs/discovery-modes-validation.json) returned five favorite-artist tracks in Familiar/Balanced and five outside-favorite tracks in Discover for **Surprise me**, in 6.3–8.6 seconds. All modes used 12 tag lookups; strict unknown BPM was rejected and **More like this** recovered its original mode. Counts reflect this small source/contract check, not guaranteed ratios or graded recommendation quality. Native checks cover real mode buttons, persistence, pending-request locks and the applied-mode label. The Xcode build passes.
 
 The ranking evaluation defaults to clearly labeled fictional fixtures; [the discovery guide](docs/music-discovery.md) explains how to capture and manually judge real Last.fm candidates. Recorded smoke results are not a broad coverage or recommendation-accuracy claim.
 

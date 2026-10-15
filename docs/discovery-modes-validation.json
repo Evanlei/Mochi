@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-10-15T16:13:28.133689+00:00",
+  "checked_local_at": "2026-10-15T12:13:28.133689-04:00",
+  "live": true,
+  "probe_artists": [
+    "The Weeknd"
+  ],
+  "cases": [
+    {
+      "mode": "familiar",
+      "elapsed_ms": 6746,
+      "returned_tracks": 5,
+      "favorite_artist_tracks": 5,
+      "outside_favorite_artists": 0,
+      "tag_lookup_count": 12,
+      "warnings": []
+    },
+    {
+      "mode": "balanced",
+      "elapsed_ms": 6349,
+      "returned_tracks": 5,
+      "favorite_artist_tracks": 5,
+      "outside_favorite_artists": 0,
+      "tag_lookup_count": 12,
+      "warnings": []
+    },
+    {
+      "mode": "discover",
+      "elapsed_ms": 8628,
+      "returned_tracks": 5,
+      "favorite_artist_tracks": 0,
+      "outside_favorite_artists": 5,
+      "tag_lookup_count": 12,
+      "warnings": []
+    }
+  ],
+  "unknown_bpm_rejected": true,
+  "similar_restored_original_mode": true,
+  "note": "Source/contract probe with disposable storage. Mix counts are observations, not guaranteed quotas or relevance grades. Outside favorites does not mean unheard. Spotify playback and personal preferences were unchanged."
+}
