@@ -4,7 +4,7 @@
 
 A personal desktop DJ, built with Swift and SwiftUI. Describe a session to floating Mochi; the local Python backend discovers Last.fm candidates and ranks them to your taste, while Spotify handles playback.
 
-The native companion, live discovery integration, independent ranking, conservative Spotify resolution, partial queue playback, and local taste memory are implemented. Live Last.fm source checks and a real discovery/ranking request have passed; real-account recommendation playback remains to be checked.
+The native companion, live discovery integration, independent ranking, retryable Spotify resolution, continuous queue playback, and local taste memory are implemented. Live Last.fm source checks and a real discovery/ranking request have passed; real-account recommendation playback remains to be checked.
 
 ## Current functionality
 
@@ -17,6 +17,8 @@ The native companion, live discovery integration, independent ranking, conservat
 - Two-pass ranking checks song tags for promising preliminary matches, then reranks with the new information; at most 12 recordings get detail lookups.
 - Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
 - **More like this** in each live song's `…` menu, keeping the original request and excluding the previous batch.
+- Continuous listening for API-connected users: queue confirmed songs, refill from the same session, avoid recent suggestions, and stop refills from either panel.
+- Click an unresolved recommendation to retry Spotify matching; recordings still need a confident artist/title/version match.
 - Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
 - Loading, cancellation, empty-result, unavailable-track, and connection/error states for search.
 - Saved desktop position and visibility, plus Show/Hide Mochi and Quit in the menu-bar panel.
@@ -27,12 +29,14 @@ The native companion, live discovery integration, independent ranking, conservat
 - Local disconnect that removes Mochi's saved tokens.
 - Optional Spotify desktop controls with no Web API login, plus validated track-link playback.
 - **Find on Spotify** in recommendation menus for users outside the API beta.
-- Now Playing with the song, artist, playing/paused status, and Spotify device.
+- Compact 300-point menu player with song, artist, transport, device and continuous-session status; secondary controls live under `…`.
 - Play/pause, previous, next, and manual Refresh controls.
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
 
-**Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return up to five canonical recordings. API-connected users get conservative Spotify version matching: Web API mode starts the ranked subset, and desktop mode starts the first confirmed match. Users without API login can hand off to public Spotify search and play a copied track link locally. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
+**Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return small batches of canonical recordings. API-connected users start a confirmed song and queue the remaining matches, then automatically discover and append more as the queue runs low. The session preserves the original request and listening mode. Pause is respected; switching to unrelated playback or another device stops refills. Users without API login can hand off to public Spotify search and play a copied track link locally. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
+
+**To try it:** run the backend and Mochi, connect the optional Spotify API, start Spotify, and send a listening request. The footer shows continuous listening and the queued count. Stop disables refills; songs already accepted into Spotify’s queue remain there. Desktop controls can start locally, but automatic matching and queue appends still require the API connection.
 
 See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md). The first release is a private hobby beta. Desktop controls avoid the Web API allowlist for playback; automatic API matching remains limited. Public distribution still requires resolving provider permissions. See [local playback setup and limits](docs/local-spotify-playback.md).
 

@@ -5,6 +5,18 @@
 > **Primary platform:** macOS  
 > **Primary objective:** Build a technically credible software engineering project while developing the author's independent engineering ability.
 
+## Continuous listening and player refinement — October 16, 2026
+
+This refinement takes precedence over the earlier five-song playback description.
+
+- **Retryable songs:** unresolved live recommendations remain clickable for API-connected users. A click makes a fresh bounded lookup, including an alternate search form, with one explicit 401 refresh. It reports an unconfirmed recording instead of permanently disabling the row. Known unavailable recordings still cannot play. Equivalent duplicate releases may match when exact artist/title/version and known durations agree within 1.5 seconds and known ISRCs do not conflict. Generic, unmeasured requests may use a clearly labeled remaster; measured/version-specific sources keep strict recording checks.
+- **Continuous listening:** start one confirmed song and append the other confirmed matches through Spotify's real queue, in order. When at most two queued songs remain, `POST /continue-listening` verifies a canonical seed against its saved request and recovers the original prompt, mode and favorite-artist keys. It discovers that recording's Last.fm neighborhood, filters seen songs, and ranks under the original strict requirements. Five is the acquisition batch size, not the session length. The card updates to the next discovered batch while listening continues.
+- **Bounds and ownership:** keep rolling exclusions for the last 500 independently suggested IDs and resolved Spotify URIs, plus a small native queue window. Do not import Spotify history or infer likes/completed listens. First-party selection feedback is still recorded only for explicit Mochi start actions. Background playback reads run every 15 seconds for the API or five seconds for desktop controls. Pause suspends refills. Unrelated songs/devices, disconnect, route change, reset and Stop cancel automatic continuation. Every queue write rechecks current URI/device ownership. Ambiguous queue acknowledgements are not retried. Empty discovery, missing confident matches and provider/storage failures stop refills with an actionable notice; accepted Spotify music is left alone. The source can run out of suitable candidates; infinite unique coverage is not promised.
+- **Desktop mode:** local Apple Events still start one URI and read four fixed properties including its URI. For API-connected beta users, the optional API supplies real queue appends and validates that Spotify's active player is playing a session URI. Desktop-only use retains manual/public search handoff and copied-link playback; there is no invented local queue API or expanded Spotify access.
+- **Menu:** a 300-point native player replaces the 380-point nested card. Song/artist, transport controls and device status are primary. Player settings holds refresh, Open Spotify, route choice, optional track-link entry and API connection management. Continuous status has an explicit Stop action. No duplicate desktop button, persistent success banner or timestamp clutter. The system menu surface supplies the material; the companion retains its existing Liquid Glass treatment.
+
+Validation uses deterministic backend, resolver, native session, local playback and native UI checks. Real-account Spotify queue/Automation behavior still needs a listening session; tests do not change personal playback.
+
 ## Current implementation decision — October 12, 2026
 
 The sections below retain the long-term product vision. This decision defines the current recommendation V1 and takes precedence over the earlier planned dataset size, unimplemented features and first-session instructions.
