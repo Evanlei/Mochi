@@ -2,6 +2,8 @@
 
 Open `index.html` directly. No build step, network dependency, API, authentication, or playback request is used.
 
+**Selected direction:** B was accepted and adapted into the native app. See [the native implementation and motion notes](../../../docs/compact-companion-motion.md). This study retains its simulated interactions for design reference; native behavior follows the README and SPEC.
+
 ## A — listening panel
 300 × 200px idle. Modes remain visible, so the relationship between taste and discovery is easy to learn. Presets have their own quiet row. This takes more desktop space but exposes the product model immediately.
 
