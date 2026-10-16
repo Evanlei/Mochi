@@ -100,7 +100,7 @@ class RecommendationService:
         if not re.search(r"\b(?:low|high) energy\b", normalized(prompt)):
             intent = replace(intent, energy_locked=False)
         ranking_prompt = prompt + " " + " ".join(discovery_tags(prompt))
-        broad_request = seed is None and bool(artists) and is_broad_request(prompt)
+        broad_request = bool(artists or taste["favorite_artists"]) and is_broad_request(prompt)
         tracks, warnings = [], []
         try:
             async with asyncio.timeout(20):

@@ -738,5 +738,27 @@ class DiscoveryAPIChecks(unittest.TestCase):
             "track_id": track().id, "title": track().title, "artist": track().artist})
         self.assertEqual(response.status_code, 409)
 
+    def test_continuation_keeps_session_constraints_and_excludes_seen_tracks(self):
+        service = self.client.app.state.recommendations
+        seed, old, request_id = track(), track("Already suggested"), str(uuid.uuid4())
+        service.taste.save_request(request_id, "piano 80-100 BPM", [seed],
+                                   mode=DiscoveryMode.FAMILIAR, favorite_artists=[artist_key(seed.artist)])
+        body = {"request_id": request_id, "track_id": seed.id, "title": seed.title,
+                "artist": seed.artist, "exclude_tracks": [old.id]}
+        with patch.object(service, "recommend", new_callable=AsyncMock,
+                          return_value=SongSelection(catalog_kind="lastfm_live", method="none", tracks=[])) as recommend:
+            response = self.client.post("/continue-listening", json=body)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["received_prompt"], "piano 80-100 BPM")
+            self.assertEqual(recommend.call_args.kwargs["exclude"], {seed.id, old.id})
+            self.assertEqual(recommend.call_args.kwargs["mode"], DiscoveryMode.FAMILIAR)
+            self.assertEqual(recommend.call_args.args[1].bpm_min, 80)
+            for changes in ({"exclude_tracks": ["spotify:track:bad"]}, {"exclude_tracks": [old.id] * 501},
+                            {"discovery_mode": "discover"}, {"title": "wrong"}):
+                self.assertEqual(self.client.post("/continue-listening", json={**body, **changes}).status_code, 422)
+            self.assertEqual(recommend.call_count, 1)
+        self.client.delete("/taste")
+        self.assertEqual(self.client.post("/continue-listening", json=body).status_code, 409)
+
 
 if __name__ == "__main__": unittest.main()

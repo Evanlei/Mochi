@@ -83,8 +83,19 @@ class SimilarRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     artist: str = Field(min_length=1, max_length=200)
 
+class ContinuationRequest(SimilarRequest):
+    # Only independent canonical IDs cross this boundary, never Spotify payloads.
+    exclude_tracks: list[Annotated[str, StringConstraints(pattern=r"^lastfm-[0-9a-f]{64}$")]] = Field(default_factory=list, max_length=500)
+
+@app.post("/continue-listening", response_model=ListeningResponse)
+async def continue_listening(request: ContinuationRequest):
+    return await discover_similar(request, exclude=request.exclude_tracks)
+
 @app.post("/more-like-this", response_model=ListeningResponse)
 async def more_like_this(request: SimilarRequest):
+    return await discover_similar(request)
+
+async def discover_similar(request: SimilarRequest, *, exclude=()):
     if app.state.settings.mode != "live":
         raise HTTPException(status_code=409, detail="More like this requires live discovery.")
     service = app.state.recommendations
@@ -100,7 +111,7 @@ async def more_like_this(request: SimilarRequest):
         raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
     parsed = await run_in_threadpool(interpret_request, prompt)
     try:
-        selection = await service.recommend(prompt, parsed, seed=seed, exclude=previous, **options)
+        selection = await service.recommend(prompt, parsed, seed=seed, exclude=set(previous) | set(exclude), **options)
     except (OSError, ValueError, sqlite3.Error):
         raise HTTPException(status_code=503, detail="Music discovery storage is unavailable.") from None
     return ListeningResponse(received_prompt=prompt,
