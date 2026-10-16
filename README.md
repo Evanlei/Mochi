@@ -10,7 +10,7 @@ The native companion, live discovery integration, independent ranking, conservat
 
 - A draggable sage Mochi character, matching the supplied SVG artwork.
 - Click Mochi to open or close a compact listening-request card.
-- Optional favorite-artist setup with Last.fm autocomplete, up to three removable choices, and a heart button to edit them later.
+- Optional favorite-artist setup with Last.fm autocomplete, up to three removable choices, and a listening-options menu to edit them later.
 - Familiar / Balanced / Discover choices adjust artist pools and ranking, remember your preference, and preserve the original mode for **More like this**.
 - Focus, Unwind, and Surprise me choices, plus a text input with Send and Return submission.
 - Listening text sent asynchronously to a local FastAPI backend, with validation and confirmation.
@@ -54,7 +54,7 @@ Most source editing can be done in VS Code. Xcode provides the native project, b
 3. Build and run with **Command-R**.
 4. Click the music-note icon in the macOS menu bar to open the panel.
 5. Mochi appears near the bottom-right of your desktop on first launch. Click the character to open the listening-request card. If you previously hid it, click **Show Mochi** in the menu-bar panel.
-6. Choose one to three favorite artists, or **Skip for now**. Start the local backend below first. Type a full artist name and press **Return** or **Add**, or click an autocomplete result. An exact match saves as a removable chip; partial names require choosing a result. Spotify login is not needed. Click the heart later to edit your choices.
+6. Choose one to three favorite artists, or **Skip for now**. Start the local backend below first. Type a full artist name and press **Return** or **Add**, or click an autocomplete result. An exact match saves as a removable chip; partial names require choosing a result. Spotify login is not needed. Open the header’s `…` menu and choose **Edit favorite artists** later.
 
 You can also build from the repository root:
 
@@ -82,7 +82,7 @@ uv run --extra semantic fastapi dev main.py
 
 The preparation command downloads a pinned public model once (about 67 MB of model weights) into an ignored local folder. On subsequent starts, only run `uv run --extra semantic fastapi dev main.py`. Leave the terminal running while using listening requests. **Control-C** stops it. Saving Python changes reloads the development server. It listens on your computer at `127.0.0.1:8000`; no AWS service is needed. For the deterministic rules alone, use `uv run fastapi dev main.py`; missing model files or packages also fall back to those rules.
 
-Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, connect Spotify, click the character, and try **jazz piano**, **indie rock**, or **mellow acoustic guitar**. The expanded card shows source links, available musical features, play buttons and likes/dislikes. Missing musical features stay unknown. Strict requests such as **no vocals** currently return empty live selections rather than guessed results. In fictional demo mode, try **calm piano without vocals 80–100 BPM** to exercise numeric filtering. **Calm and energetic** asks for clarification.
+Open [the API testing page](http://127.0.0.1:8000/docs) or [the health check](http://127.0.0.1:8000/health). Then run Mochi, connect Spotify, click the character, and try **jazz piano**, **indie rock**, or **mellow acoustic guitar**. The expanded card shows songs and a small Last.fm source link. Click a song title to play a confirmed Spotify match; its `…` menu holds feedback and discovery actions. Missing musical features stay unknown. Strict requests such as **no vocals** currently return empty live selections rather than guessed results. In fictional demo mode, try **calm piano without vocals 80–100 BPM** to exercise numeric filtering. **Calm and energetic** asks for clarification.
 
 If the server is stopped, Mochi keeps your text and asks you to start the backend and retry. Send is disabled during a pending request; the reset button cancels it. Spotify search and playback use their existing direct Spotify connection independently.
 
@@ -131,22 +131,22 @@ The playback client gets its access token from the existing authentication model
 
 ## Floating Mochi
 
-The accepted **B — composer first** layout uses a 300 × 150-point translucent sage card. The current discovery mode opens a small dropdown, leaving room for the prompt and presets. Results and Spotify search expand to 300 × 340 points; favorite-artist editing uses 300 × 320 points and shrinks after three choices. Reduce Transparency supplies a solid background.
+The accepted **B — composer first** layout uses a 300 × 150-point native **Liquid Glass** card. The current discovery mode opens a small dropdown, leaving room for the prompt and presets. Results and Spotify search expand to 300 × 340 points; favorite-artist editing uses 300 × 320 points and shrinks after three choices. The material follows light/dark appearance; Reduce Transparency supplies a solid background.
 
-Mochi breathes, blinks, glances around and occasionally jumps while idle, with no ground shadow. Hovering gives a squishy greeting and hand wave; dragging stretches the body and releasing it gives a settling bounce. A draft gives Mochi a curious expression, an active discovery/search request gives it a thinking pose, and playback starting triggers a brief happy squish. Reactions blend from their current state rather than restarting on every keystroke. The panel fades in/out quickly, expands smoothly into results, and its primary buttons have subtle press feedback.
+Mochi breathes, blinks, glances around and occasionally jumps while idle, with no ground shadow. Hovering gives a squishy greeting and hand wave; dragging stretches the body and releasing it gives a settling bounce. A draft gives Mochi a curious expression, an active discovery/search request gives it a thinking pose, and playback starting triggers a brief happy squish. Reactions blend from their current state rather than restarting on every keystroke. The panel uses short entry/exit fades and subtle primary-button press feedback. Its native bounds update directly when results arrive, avoiding the previous stretching/cropping resize animation.
 
 While music is playing, Mochi dances to its own steady rhythm; this is not measured song BPM. Desktop mode refreshes playback every five seconds while the menu is closed. After 90 seconds without interaction, Mochi sleeps with closed eyes, slow breathing and floating z’s; hovering wakes it. An open card keeps it awake. Animation pauses when hidden. Reduce Motion uses static character expressions and immediate panel geometry changes. See [motion choices and validation](docs/compact-companion-motion.md).
 
 - **Drag** the character to move it. Its position is saved between launches.
 - **Click** the character to open or close the card. Dragging does not also open it.
-- Use the **heart** to add/remove favorite artists. One is enough; choices save immediately on this Mac. Adding an artist triggers Mochi's squishy greeting. The setup card shrinks after three choices.
-- Open the **discovery-mode dropdown** and choose **Familiar** to lean toward saved artists, **Balanced** for the existing mix of candidate sources, or **Discover** to lean toward artists outside your favorites. Familiar/Discover need a saved artist. The choice applies to the next request; existing results keep a label showing their original mode. These are preferences, not fixed ratios or a guarantee that you have/haven't heard a recording.
+- Open the header’s **… → Edit favorite artists** to add/remove favorite artists. One is enough; choices save immediately on this Mac. Adding an artist triggers Mochi's squishy greeting. The setup card shrinks after three choices.
+- Open the **discovery-mode dropdown** and choose **Familiar** to lean toward saved artists, **Balanced** for the existing mix of candidate sources, or **Discover** to lean toward artists outside your favorites. Familiar/Discover need a saved artist. The choice applies to the next request; the footer identifies the original mode if it differs. These are preferences, not fixed ratios or a guarantee that you have/haven't heard a recording.
 - Choose **Focus**, **Unwind**, or **Surprise me**, or type your own mood, artist, or song. Click the arrow or press **Return** to submit.
 - Mood submissions show live matches, a setup/constraint message, or a clarification question. Each submission is analyzed independently; answer a question with a complete revised request.
-- Use thumbs up/down to save taste feedback. Right-click the reset arrow and choose **Forget taste memory** to delete it. **Play matches** retries matching after connecting Spotify.
+- Use each song’s **… → Like / Dislike** to save feedback. The header’s **… → Forget taste memory** deletes stored taste. **Play matches** is also in that header menu when connected.
 - Choose **More like this** from a recommended song's `…` menu to discover another batch for the same session.
 - Use **Cancel** while a request is pending to keep your draft and reject late responses. Refinement cancellation also retains the existing songs.
-- Click the reset arrow to start a **new listening request**.
+- Open the header’s **… → New listening request** to start over.
 - Press **Escape**, click the close button, or click outside the card to dismiss it. Closing retains your draft and preferences during this app session.
 - Use **Hide Mochi / Show Mochi** in the menu-bar panel. Hiding also closes the card; visibility is remembered after quitting.
 
@@ -160,18 +160,18 @@ The visible request summary lasts for the app session. Explicit feedback and rec
 2. Click the **`…` menu** beside a song, then **More like this**.
 3. Mochi finds similar candidates, ranks them against that original request and your saved taste, and starts the confident Spotify matches if connected.
 
-The selected song and immediately previous batch are excluded. Strict BPM/vocal/energy requirements stay in place; missing measurements still cannot satisfy them. Your current composer draft is preserved. If discovery fails or no new candidates meet the request, the existing songs remain available. This action does not save a like; use thumbs up/down for that. Reset or disconnect cancels pending work. Fictional sample rows do not offer this action.
+The selected song and immediately previous batch are excluded. Strict BPM/vocal/energy requirements stay in place; missing measurements still cannot satisfy them. Your current composer draft is preserved. If discovery fails or no new candidates meet the request, the existing songs remain available. This action does not save a like; use **Like / Dislike** in the song’s menu for that. Reset or disconnect cancels pending work. Fictional sample rows do not offer this action.
 
 ## Find and play a song
 
 1. Connect Spotify from the menu-bar panel, and open Spotify on your preferred device. Start a song there once if Spotify has no active player.
-2. Click Mochi, then the **magnifying glass** in its card.
+2. Click Mochi, then **… → Search songs and artists**.
 3. Choose **Songs** and enter a title, or choose **Artists** and enter an artist's name to find matching tracks.
 4. Press **Return** or click the search button. Mochi searches once per submission, not on every keystroke.
 5. Click a result to play that track. The small external-link button opens its Spotify page.
 6. Use the speech-bubble button to return to your listening request.
 
-Search mode expands the same translucent card to 300 × 340 points, with a scrollable result list. Returning to the listening request restores its 300 × 180-point size and retains your preferences. Closing the card retains search results during the session. Disconnecting clears account results and cancels pending work.
+Search mode expands the same translucent card to 300 × 340 points, with a scrollable result list. Returning to the listening request restores its 300 × 150-point size and retains your preferences. Closing the card retains search results during the session. Disconnecting clears account results and cancels pending work.
 
 Mochi uses Spotify's [catalog search](https://developer.spotify.com/documentation/web-api/reference/search) with five results and the connected user's market. Artist mode searches tracks with Spotify's `artist:` filter. You choose the result; Mochi does not assume the first match is correct. Tracks explicitly marked unavailable are disabled. Spotify may omit optional metadata, which Mochi tolerates.
 

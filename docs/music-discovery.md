@@ -59,7 +59,7 @@ HTTP calls have four-second timeouts, acquisition has a 12-second limit within d
 
 ## Favorite-artist setup
 
-On first opening, the compact card asks **Who do you like listening to?** One artist is enough, three are optional, and **Skip for now** remembers that choice. The heart button edits choices anytime. Artist autocomplete waits 350 ms after typing, searches Last.fm through the local backend, and returns at most five names. Query changes and closing the editor cancel work and invalidate late replies. Adding a choice triggers Mochi's existing squishy greeting; Reduce Motion remains supported. Chips can be removed; the editor shrinks once three artists are selected.
+On first opening, the compact card asks **Who do you like listening to?** One artist is enough, three are optional, and **Skip for now** remembers that choice. The header’s **… → Edit favorite artists** edits choices anytime. Artist autocomplete waits 350 ms after typing, searches Last.fm through the local backend, and returns at most five names. Query changes and closing the editor cancel work and invalidate late replies. Adding a choice triggers Mochi's existing squishy greeting; Reduce Motion remains supported. Chips can be removed; the editor shrinks once three artists are selected.
 
 Press **Return** or the visible **Add** button to save a full artist name with an exact normalized autocomplete match. An early press waits for lookup; partial/ambiguous input keeps the results for explicit selection instead of accepting the first artist. The local backend must be running. If it is stopped, the editor preserves the name and shows restart/retry instructions; Return/Add retries unchanged input after starting the server. Native editing commits that write the same text do not clear existing results.
 
@@ -75,7 +75,7 @@ Spotify supplies playback and optional deterministic recording matching. Artist 
 
 ## Familiar / Balanced / Discover
 
-The compact card has three choices. Balanced is the default and retains the previous behavior. Familiar and Discover require at least one saved artist; the disabled controls point to the heart button. The native preference persists on this Mac, survives a new-request reset, and resets to Balanced when artists/taste are cleared. A choice applies to the next listening request. Existing rows show their applied mode, and controls are disabled while sending/starting playback/feedback. The request card is 300 × 200 points; results/search remain 300 × 340.
+The compact card has three choices. Balanced is the default and retains the previous behavior. Familiar and Discover require at least one saved artist; the disabled controls explain that a favorite artist is needed. The native preference persists on this Mac, survives a new-request reset, and resets to Balanced when artists/taste are cleared. A choice applies to the next listening request. Existing results show their applied mode when it differs from the next-request choice, and controls are disabled while sending/starting playback/feedback. The Liquid Glass request card is 300 × 150 points; results/search remain 300 × 340.
 
 | Mode | Tracks per saved artist | Related artists | Tracks per prompt tag with favorites | Ranking preference after relevance |
 |---|---:|---:|---:|---|
@@ -139,7 +139,7 @@ The card includes like/dislike controls. A dislike excludes that canonical recor
 
 Remembered favorites can seed Last.fm similar-track discovery while their canonical metadata remains available in the fresh provider cache. When that metadata expires, the recording/artist preference keys still influence new candidates, but the similar-track seed is unavailable until rediscovered. This avoids keeping provider descriptions indefinitely in the taste database.
 
-Taste belongs to the local backend profile on this Mac; this is not a hosted, multi-account service. Reset clears the current card/session while preserving feedback. Right-click the reset arrow and choose **Forget taste memory** to delete stored contexts and feedback. The provider cache is independent and replaceable.
+Taste belongs to the local backend profile on this Mac; this is not a hosted, multi-account service. Reset clears the current card/session while preserving feedback. Open the header’s **… → Forget taste memory** to delete stored contexts and feedback. The provider cache is independent and replaceable.
 
 ## API additions
 
