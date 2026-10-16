@@ -56,7 +56,7 @@ struct LocalSpotifyClient: LocalSpotifyControlling {
     }
 
     /// Accept track URIs and canonical Spotify track links; never accept script text.
-    static func trackURI(from input: String) -> String? {
+    nonisolated static func trackURI(from input: String) -> String? {
         let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let id: String
         if input.hasPrefix("spotify:track:") {

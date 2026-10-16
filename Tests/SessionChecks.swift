@@ -158,5 +158,15 @@ struct SessionChecks {
         precondition(SpotifyMockProtocol.server.requests().filter { $0.url?.path == "/v1/me/player/queue" }.count == 4)
         desktopRequest.stopSession()
         print("PASS: desktop controls start locally; the optional API connection supplies the real ordered queue")
+
+        replies = [try response(Array(1...5))] + (try (1...5).map(search)) + [try json(["status": "ok"])]
+        SpotifyMockProtocol.server.configure(replies)
+        desktopRequest.submit("piano")
+        while desktopRequest.isSending || desktopRequest.feedbackBusy { try await Task.sleep(for: .milliseconds(10)) }
+        SpotifyMockProtocol.server.configure([try state(1), SpotifyReply(status: 204), try state(1, device: "other-device")])
+        await desktopRequest.maintainSession()
+        precondition(!desktopRequest.isSessionActive)
+        precondition(SpotifyMockProtocol.server.requests().filter { $0.url?.path == "/v1/me/player/queue" }.count == 1)
+        print("PASS: desktop-assisted queues bind to the first confirmed API device and reject later device changes")
     }
 }

@@ -284,6 +284,7 @@ final class MochiRequestModel: ObservableObject {
 
     func playMatches() {
         guard canPlayMatches, let auth else { return }
+        stopSession()
         let generation = requestGeneration
         isStarting = true
         resultNotice = nil
@@ -385,7 +386,7 @@ final class MochiRequestModel: ObservableObject {
             return
         }
         guard let cursor = sessionSongs.prefix(enqueuedCount).firstIndex(where: { $0.match.uri == uri }),
-              sessionDeviceID == nil || state.device?.id == sessionDeviceID else {
+              usesDesktopPlayer || sessionDeviceID == nil || state.device?.id == sessionDeviceID else {
             if Date() > sessionGraceUntil { endSession(SpotifyPlaybackError.sessionChanged.localizedDescription) }
             return
         }
@@ -416,10 +417,11 @@ final class MochiRequestModel: ObservableObject {
                 try checkSession()
                 let song = sessionSongs[enqueuedCount]
                 let allowed = Set(sessionSongs.prefix(enqueuedCount).map { $0.match.uri })
-                let accepted = await playback.enqueueTrack(uri: song.match.uri, allowedCurrentURIs: allowed,
+                let device = await playback.enqueueTrack(uri: song.match.uri, allowedCurrentURIs: allowed,
                                                             deviceID: sessionDeviceID, using: auth)
                 try checkSession()
-                guard accepted else { throw SessionError.stopped(playback.errorMessage ?? "Spotify is busy. Send a new request to continue.") }
+                guard let device else { throw SessionError.stopped(playback.errorMessage ?? "Spotify is busy. Send a new request to continue.") }
+                sessionDeviceID = device
                 enqueuedCount += 1
                 queuedSongCount += 1
             }

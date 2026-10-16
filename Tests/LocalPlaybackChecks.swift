@@ -46,6 +46,10 @@ struct LocalPlaybackChecks {
         let state = try LocalSpotifyClient.decodeSnapshot(snapshot("kPSP"))!
         precondition(state.isPlaying && state.item?.name == "Test song" && state.item?.subtitle == "Test artist")
         precondition(state.device?.name == "Spotify desktop" && state.permits(.pause) && state.permits(.next))
+        let identified = snapshot("kPSP")
+        identified.insert(NSAppleEventDescriptor(string: uri), at: 4)
+        let identifiedState = try LocalSpotifyClient.decodeSnapshot(identified)
+        precondition(identifiedState?.item?.uri == uri)
         let paused = try LocalSpotifyClient.decodeSnapshot(snapshot("kPSp"))!
         precondition(!paused.isPlaying && paused.permits(.play))
         let stopped = try LocalSpotifyClient.decodeSnapshot(snapshot("kPSS"))
