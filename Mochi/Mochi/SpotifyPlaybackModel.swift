@@ -129,6 +129,32 @@ final class SpotifyPlaybackModel: ObservableObject {
         }
     }
 
+    /// Append without replacing playback. Recheck ownership/device before every
+    /// write. An uncertain acknowledgement is never retried (it could duplicate).
+    func enqueueTrack(uri: String, allowedCurrentURIs: Set<String>, deviceID: String?, using auth: SpotifyAuthModel) async -> Bool {
+        guard auth.isConnected, !isBusy, readyToRequest() else { return false }
+        let version = requestVersion
+        isBusy = true; errorMessage = nil
+        defer { if version == requestVersion { isBusy = false } }
+        do {
+            try await authorized(using: auth) { token in
+                let current = try await self.client.fetchState(accessToken: token)
+                try Task.checkCancellation()
+                guard version == self.requestVersion,
+                      let currentURI = current?.item?.uri, allowedCurrentURIs.contains(currentURI),
+                      let activeDevice = current?.device?.id, current?.device?.isRestricted != true,
+                      deviceID == nil || activeDevice == deviceID else { throw SpotifyPlaybackError.sessionChanged }
+                try await self.client.enqueueTrack(uri: uri, accessToken: token, deviceID: activeDevice)
+            }
+            try Task.checkCancellation()
+            return version == requestVersion
+        } catch {
+            guard version == requestVersion, !(error is CancellationError) else { return false }
+            report(error)
+            return false
+        }
+    }
+
     private func localOperation(refreshDelay: Bool = true, operation: () async throws -> Void) async -> Bool {
         guard usesDesktopPlayer, !isBusy else { return false }
         let version = requestVersion

@@ -158,11 +158,18 @@ enum SpotifyRecordingMatcher {
     }
 
     static func match(_ source: MochiSelectedTrack, candidates: [SpotifySearchTrack]) -> SpotifySearchTrack? {
+        let canUseRemaster = versions(source.title).isEmpty && source.isrc == nil && source.durationMS == nil
+            && source.featureSpotifyID == nil && source.bpm == nil && source.vocals == nil && source.energy == nil
+        func title(_ candidate: SpotifySearchTrack) -> String {
+            guard canUseRemaster else { return candidate.name }
+            return candidate.name.replacingOccurrences(of: #"\s*[-–—(\[]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\s*[)\]]?\s*$"#,
+                with: "", options: .caseInsensitive.union(.regularExpression))
+        }
         var seen = Set<String>()
-        let eligible = candidates.filter { candidate in
+        var eligible = candidates.filter { candidate in
             guard seen.insert(candidate.uri).inserted else { return false }
-            guard candidate.canPlay, versions(source.title) == versions(candidate.name),
-                  similarity(source.title, candidate.name) >= 0.96,
+            guard candidate.canPlay, versions(source.title) == versions(title(candidate)),
+                  similarity(source.title, title(candidate)) >= 0.96,
                   candidate.artists.contains(where: { similarity(source.artist, $0.name) >= 0.96 }) else { return false }
             if let duration = source.durationMS {
                 guard let actual = candidate.durationMS, abs(actual - duration) <= 2000 else { return false }
@@ -172,6 +179,10 @@ enum SpotifyRecordingMatcher {
             }
             if let featureID = source.featureSpotifyID, source.isrc == nil, candidate.id != featureID { return false }
             return true
+        }
+        // Prefer the requested edition when both original and remaster exist.
+        if eligible.contains(where: { versions($0.name) == versions(source.title) }) {
+            eligible.removeAll { versions($0.name) != versions(source.title) }
         }
         if eligible.count <= 1 { return eligible.first }
         let isrcs = Set(eligible.compactMap { $0.externalIDs?.isrc?.uppercased() })

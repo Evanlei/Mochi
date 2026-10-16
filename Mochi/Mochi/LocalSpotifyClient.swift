@@ -132,7 +132,7 @@ struct LocalSpotifyClient: LocalSpotifyControlling {
         let current = property("pTrk")
         let properties = NSAppleEventDescriptor.list()
         for (index, descriptor) in [property("pPlS"), property("pnam", of: current),
-                                    property("pArt", of: current)].enumerated() {
+                                    property("pArt", of: current), property("ID  ", of: current)].enumerated() {
             properties.insert(descriptor, at: index + 1)
         }
         let result = event("core", "getd")
@@ -141,7 +141,7 @@ struct LocalSpotifyClient: LocalSpotifyControlling {
     }
 
     static func decodeSnapshot(_ result: NSAppleEventDescriptor) throws -> SpotifyPlaybackState? {
-        guard result.descriptorType == typeAEList, result.numberOfItems == 3,
+        guard result.descriptorType == typeAEList, [3, 4].contains(result.numberOfItems),
               let status = result.atIndex(1)?.enumCodeValue,
               [code("kPSP"), code("kPSp"), code("kPSS")].contains(status) else {
             throw LocalSpotifyError.unexpectedResponse
@@ -152,7 +152,8 @@ struct LocalSpotifyClient: LocalSpotifyControlling {
             throw LocalSpotifyError.unexpectedResponse
         }
         return SpotifyPlaybackState(isPlaying: status == code("kPSP"),
-            item: SpotifyPlaybackItem(name: name, type: "track", artists: [SpotifyPlaybackArtist(name: artist)], show: nil),
+            item: SpotifyPlaybackItem(name: name, type: "track", artists: [SpotifyPlaybackArtist(name: artist)], show: nil,
+                                      uri: result.atIndex(4)?.stringValue.flatMap(Self.trackURI)),
             device: SpotifyPlaybackDevice(id: nil, name: "Spotify desktop", isRestricted: false),
             actions: nil, currentlyPlayingType: "track")
     }

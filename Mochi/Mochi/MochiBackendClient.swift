@@ -227,6 +227,16 @@ struct MochiBackendClient {
         return try await receive(path: "more-like-this", body: body, expectedPrompt: prompt, similar: true)
     }
 
+    func continueListening(from track: MochiSelectedTrack, requestID: String, prompt: String, excluding: [String]) async throws -> MochiListeningResponse {
+        guard UUID(uuidString: requestID) != nil, excluding.count <= 500,
+              excluding.allSatisfy({ $0.range(of: "^lastfm-[0-9a-f]{64}$", options: .regularExpression) != nil }) else {
+            throw MochiBackendError.invalidRecommendation
+        }
+        let body = try JSONSerialization.data(withJSONObject: ["request_id": requestID,
+            "track_id": track.id, "title": track.title, "artist": track.artist, "exclude_tracks": excluding])
+        return try await receive(path: "continue-listening", body: body, expectedPrompt: prompt, similar: true)
+    }
+
     private func receive(path: String, body: Data, expectedPrompt text: String, similar: Bool) async throws -> MochiListeningResponse {
         guard let url = URL(
             string: "http://127.0.0.1:8000/\(path)"

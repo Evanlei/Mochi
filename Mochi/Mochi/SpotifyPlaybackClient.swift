@@ -46,10 +46,17 @@ final class SpotifyPlaybackClient {
                               deviceID: deviceID, body: body)
     }
 
+    func enqueueTrack(uri: String, accessToken: String, deviceID: String) async throws {
+        guard LocalSpotifyClient.trackURI(from: uri) == uri else { throw SpotifyPlaybackError.invalidTrack }
+        _ = try await request(path: "/queue", method: "POST", accessToken: accessToken,
+                              deviceID: deviceID, uri: uri)
+    }
+
     private func request(path: String, method: String, accessToken: String, deviceID: String? = nil,
-                         body: Data? = nil) async throws -> (Data, Int) {
+                         body: Data? = nil, uri: String? = nil) async throws -> (Data, Int) {
         var components = URLComponents(string: "https://api.spotify.com/v1/me/player\(path)")!
         if let deviceID { components.queryItems = [URLQueryItem(name: "device_id", value: deviceID)] }
+        if let uri { components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "uri", value: uri)] }
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
         request.timeoutInterval = 15
@@ -87,7 +94,7 @@ enum SpotifyPlaybackCommand: String, Sendable {
 }
 
 enum SpotifyPlaybackError: LocalizedError {
-    case unauthorized, forbidden, noDevice, unexpectedResponse, invalidTrack
+    case unauthorized, forbidden, noDevice, unexpectedResponse, invalidTrack, sessionChanged
     case rateLimited(seconds: TimeInterval, quotaExceeded: Bool)
     case requestFailed(Int)
 
@@ -98,6 +105,7 @@ enum SpotifyPlaybackError: LocalizedError {
         case .noDevice: "No Spotify player is available. Open Spotify, start a song, then refresh."
         case .unexpectedResponse: "Spotify returned playback information Mochi could not read."
         case .invalidTrack: "This result does not contain a valid Spotify track. Search again."
+        case .sessionChanged: "Spotify playback changed. Continuous listening stopped; your current music keeps playing."
         case .rateLimited(let seconds, let quotaExceeded):
             quotaExceeded ? "Spotify's API quota is exhausted. Try again later." : "Spotify asked Mochi to wait \(Int(seconds.rounded(.up))) seconds before another request."
         case .requestFailed(let status): "Spotify playback request failed (HTTP \(status)). Try refreshing."
@@ -144,6 +152,7 @@ struct SpotifyPlaybackItem: Decodable, Sendable {
     let type: String
     let artists: [SpotifyPlaybackArtist]?
     let show: SpotifyPlaybackShow?
+    var uri: String? = nil
 
     var subtitle: String {
         if let artists, !artists.isEmpty { return artists.map(\.name).joined(separator: ", ") }

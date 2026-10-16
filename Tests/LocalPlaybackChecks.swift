@@ -33,8 +33,8 @@ struct LocalPlaybackChecks {
         precondition(play.paramDescriptor(forKeyword: keyDirectObject)?.stringValue == uri)
         let readEvent = LocalSpotifyClient.snapshotEvent()
         precondition(readEvent.eventClass == LocalSpotifyClient.code("core") && readEvent.eventID == LocalSpotifyClient.code("getd"))
-        precondition(readEvent.paramDescriptor(forKeyword: keyDirectObject)?.numberOfItems == 3)
-        print("PASS: commands target Spotify alone and URI travels as data; snapshot uses three fixed properties")
+        precondition(readEvent.paramDescriptor(forKeyword: keyDirectObject)?.numberOfItems == 4)
+        print("PASS: commands target Spotify alone and URI travels as data; snapshot uses four fixed properties")
 
         func snapshot(_ status: String, name: String = "Test song", artist: String = "Test artist") -> NSAppleEventDescriptor {
             let result = NSAppleEventDescriptor.list()

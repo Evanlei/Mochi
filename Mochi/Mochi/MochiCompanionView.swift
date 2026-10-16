@@ -28,6 +28,23 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var likedTracks: Set<String> = []
     @Published private(set) var dislikedTracks: Set<String> = []
     @Published private(set) var similarTo: String?
+    @Published private(set) var isSessionActive = false
+    @Published private(set) var isRefilling = false
+    @Published private(set) var queuedSongCount = 0
+
+    private struct SessionSong {
+        let track: MochiSelectedTrack
+        let match: SpotifySearchTrack
+        let requestID: String
+    }
+    private var sessionSongs: [SessionSong] = []
+    private var enqueuedCount = 0
+    private var seenSongIDs: [String] = []
+    private var seenSpotifyURIs: [String] = []
+    private var sessionDeviceID: String?
+    private var sessionGraceUntil = Date.distantPast
+    private var sessionGeneration = UUID()
+    private var refillTask: Task<Void, Never>?
 
     private let backend: MochiBackendClient
     private let defaults: UserDefaults?
@@ -97,6 +114,7 @@ final class MochiRequestModel: ObservableObject {
     }
 
     private func sendRequest(_ text: String, seed: MochiSelectedTrack? = nil, seedRequestID: String? = nil) {
+        stopSession()
         requestGeneration = UUID()
         feedbackTask?.cancel(); feedbackTask = nil; feedbackBusy = false
         isSending = true
@@ -228,18 +246,23 @@ final class MochiRequestModel: ObservableObject {
                 resultNotice = reply
                 return
             }
-            // Spotify's desktop scripting interface cannot create a queue.
-            let toPlay = playback.usesDesktopPlayer ? Array(matched.prefix(1)) : matched
+            // Start one song, then append the rest through Spotify's real queue.
+            // Mixing a URI-list context with the priority queue can reorder songs.
+            let toPlay = Array(matched.prefix(1))
             let uris = toPlay.compactMap { resolvedTracks[$0.id]?.uri }
             reply = "Starting your music…"
             let accepted = await playback.startTracks(uris: uris, using: auth)
             try check(generation, auth: auth, connection: connection)
-            let startedMessage = playback.usesDesktopPlayer ? "Playing the first match on Spotify desktop." : "Started \(matched.count) of \(selection.tracks.count) matches."
+            let startedMessage = "Playing \(toPlay[0].title). Continuous listening is on."
             reply = playback.errorMessage ?? (accepted ? startedMessage : "Playback is busy. Try a play button.")
-            if !accepted || playback.errorMessage != nil || (!playback.usesDesktopPlayer && matched.count < selection.tracks.count) { resultNotice = reply }
+            if !accepted || playback.errorMessage != nil { resultNotice = reply }
+            else if matched.count < selection.tracks.count {
+                resultNotice = "\(matched.count) of \(selection.tracks.count) Spotify matches confirmed. Other songs can be retried."
+            }
             if accepted, let first = toPlay.first {
                 // Record our selection, not imported Spotify history or inferred listens.
                 recordSelection(first, generation: generation)
+                beginSession(matched: matched)
             }
         } catch {
             guard !(error is CancellationError), generation == requestGeneration else { return }
@@ -275,6 +298,7 @@ final class MochiRequestModel: ObservableObject {
         guard canPlay(track), let auth, let playback,
               selection?.tracks.contains(where: { $0.id == track.id }) == true else { return }
         let generation = requestGeneration
+        stopSession()
         let connection = auth.connectionVersion
         isStarting = true
         reply = "Starting your music…"; resultNotice = nil
@@ -314,8 +338,140 @@ final class MochiRequestModel: ObservableObject {
             guard generation == self.requestGeneration, auth.isConnected, connection == auth.connectionVersion else { return }
             self.reply = playback.errorMessage ?? (accepted ? "Playing \(track.title)." : "Playback is busy. Try again.")
             self.resultNotice = accepted && playback.errorMessage == nil ? nil : self.reply
-            if accepted { self.recordSelection(track, generation: generation) }
+            if accepted {
+                self.recordSelection(track, generation: generation)
+                self.beginSession(matched: [track])
+            }
         }
+    }
+
+    private func beginSession(matched: [MochiSelectedTrack]) {
+        stopSession()
+        guard let selection, let requestID = selection.requestID, currentPrompt != nil else { return }
+        sessionSongs = matched.compactMap { track in
+            resolvedTracks[track.id].map { SessionSong(track: track, match: $0, requestID: requestID) }
+        }
+        guard !sessionSongs.isEmpty else { return }
+        enqueuedCount = 1
+        seenSongIDs = selection.tracks.map(\.id)
+        seenSpotifyURIs = sessionSongs.map { $0.match.uri }
+        sessionDeviceID = usesDesktopPlayer ? nil : playback?.state?.device?.id
+        sessionGraceUntil = Date().addingTimeInterval(20)
+        queuedSongCount = enqueuedCount - 1
+        isSessionActive = true
+    }
+
+    /// Stopping refills leaves the current song and Spotify's accepted queue alone.
+    func stopSession() {
+        sessionGeneration = UUID()
+        refillTask?.cancel(); refillTask = nil
+        isSessionActive = false; isRefilling = false; queuedSongCount = 0
+        sessionSongs = []; enqueuedCount = 0
+        seenSongIDs = []; seenSpotifyURIs = []; sessionDeviceID = nil
+    }
+
+    private func endSession(_ message: String) {
+        stopSession()
+        resultNotice = message
+    }
+
+    /// Called by the app lifetime poll, including while both panels are closed.
+    /// Pauses are respected; an unrelated song/device ends ownership.
+    func maintainSession() async {
+        guard isSessionActive, !isRefilling, !isSending, !isStarting,
+              let playback, !playback.isBusy, !playback.isStale, let auth, auth.isConnected else { return }
+        guard let state = playback.state, let uri = state.item?.uri else {
+            if Date() > sessionGraceUntil { endSession("Continuous listening stopped. Start a new request to resume.") }
+            return
+        }
+        guard let cursor = sessionSongs.prefix(enqueuedCount).firstIndex(where: { $0.match.uri == uri }),
+              sessionDeviceID == nil || state.device?.id == sessionDeviceID else {
+            if Date() > sessionGraceUntil { endSession(SpotifyPlaybackError.sessionChanged.localizedDescription) }
+            return
+        }
+        sessionGraceUntil = .distantPast
+        queuedSongCount = max(0, enqueuedCount - cursor - 1)
+        guard state.isPlaying, queuedSongCount <= 2 else { return }
+        // Keep just a few previous entries plus upcoming songs in native memory.
+        if cursor > 5 { sessionSongs.removeFirst(cursor - 5); enqueuedCount -= cursor - 5 }
+        let generation = requestGeneration, session = sessionGeneration
+        isRefilling = true
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { if session == self.sessionGeneration { self.isRefilling = false; self.refillTask = nil } }
+            await self.refillSession(generation: generation, session: session, auth: auth, playback: playback)
+        }
+        refillTask = task
+        await task.value
+    }
+
+    private func refillSession(generation: UUID, session: UUID, auth: SpotifyAuthModel, playback: SpotifyPlaybackModel) async {
+        let connection = auth.connectionVersion
+        func checkSession() throws {
+            try check(generation, auth: auth, connection: connection)
+            guard session == sessionGeneration, isSessionActive else { throw CancellationError() }
+        }
+        func appendPending() async throws {
+            while enqueuedCount < sessionSongs.count {
+                try checkSession()
+                let song = sessionSongs[enqueuedCount]
+                let allowed = Set(sessionSongs.prefix(enqueuedCount).map { $0.match.uri })
+                let accepted = await playback.enqueueTrack(uri: song.match.uri, allowedCurrentURIs: allowed,
+                                                            deviceID: sessionDeviceID, using: auth)
+                try checkSession()
+                guard accepted else { throw SessionError.stopped(playback.errorMessage ?? "Spotify is busy. Send a new request to continue.") }
+                enqueuedCount += 1
+                queuedSongCount += 1
+            }
+        }
+        do {
+            // Desktop scripting starts one URI; the optional API connection
+            // appends its remaining matches to the real Spotify queue.
+            try await appendPending()
+            guard queuedSongCount <= 2, let seed = sessionSongs.last, let prompt = currentPrompt else { return }
+            let response = try await backend.continueListening(from: seed.track, requestID: seed.requestID,
+                prompt: prompt, excluding: seenSongIDs)
+            try checkSession()
+            guard let next = response.selection, next.catalogKind == .lastfmLive, let requestID = next.requestID,
+                  !next.tracks.isEmpty else {
+                throw SessionError.stopped(response.selection?.message ?? "No more matching songs found. Queued music will finish; try a new request.")
+            }
+            var token = try await auth.validAccessToken()
+            try checkSession()
+            let deadline = Date().addingTimeInterval(25)
+            var additions: [SessionSong] = []
+            for track in next.tracks where !seenSongIDs.contains(track.id) {
+                guard deadline.timeIntervalSinceNow > 0 else { break }
+                let match: SpotifySearchTrack?
+                do { match = try await resolver.resolve(track, accessToken: token, timeout: deadline.timeIntervalSinceNow) }
+                catch SpotifySearchError.unauthorized {
+                    token = try await auth.validAccessToken(forceRefresh: true)
+                    try checkSession()
+                    guard deadline.timeIntervalSinceNow > 0 else { break }
+                    match = try await resolver.resolve(track, accessToken: token, timeout: deadline.timeIntervalSinceNow)
+                }
+                try checkSession()
+                if let match, !seenSpotifyURIs.contains(match.uri), !additions.contains(where: { $0.match.uri == match.uri }) {
+                    additions.append(SessionSong(track: track, match: match, requestID: requestID))
+                }
+            }
+            guard !additions.isEmpty else { throw SessionError.stopped("No new Spotify recordings could be confirmed. Queued music will finish; try a new request.") }
+            seenSongIDs = Array((seenSongIDs + next.tracks.map(\.id)).suffix(500))
+            seenSpotifyURIs = Array((seenSpotifyURIs + additions.map { $0.match.uri }).suffix(500))
+            selection = next
+            resolvedTracks = Dictionary(uniqueKeysWithValues: (sessionSongs + additions).map { ($0.track.id, $0.match) })
+            likedTracks.formIntersection(Set(next.tracks.map(\.id))); dislikedTracks.formIntersection(Set(next.tracks.map(\.id)))
+            sessionSongs += additions
+            try await appendPending()
+        } catch {
+            guard !Task.isCancelled, generation == requestGeneration, session == sessionGeneration else { return }
+            endSession(error.localizedDescription)
+        }
+    }
+
+    private enum SessionError: LocalizedError {
+        case stopped(String)
+        var errorDescription: String? { if case .stopped(let message) = self { return message }; return nil }
     }
 
     private func recordSelection(_ track: MochiSelectedTrack, generation: UUID) {
@@ -349,6 +505,7 @@ final class MochiRequestModel: ObservableObject {
 
     func clearTaste() {
         guard !feedbackBusy, !isSending, !isStarting else { return }
+        stopSession()
         let generation = requestGeneration
         feedbackBusy = true
         feedbackError = nil
@@ -371,6 +528,7 @@ final class MochiRequestModel: ObservableObject {
 
     func cancelRequest() {
         guard isSending else { return }
+        stopSession()
         requestGeneration = UUID()
         sendTask?.cancel(); sendTask = nil
         isSending = false
@@ -379,6 +537,7 @@ final class MochiRequestModel: ObservableObject {
     }
 
     func reset() {
+        stopSession()
         requestGeneration = UUID()
         sendTask?.cancel()
         playTask?.cancel(); feedbackTask?.cancel()
@@ -553,6 +712,9 @@ struct MochiCompanionCard: View {
                 if request.isConnected && request.hasSelectedTracks {
                     utilityAction(request.usesDesktopPlayer ? "Play first match" : "Play matches", symbol: "play", disabled: !request.canPlayMatches) { request.playMatches() }
                 }
+                if request.isSessionActive {
+                    utilityAction("Stop continuous listening", symbol: "stop.circle") { request.stopSession() }
+                }
                 Divider().padding(.vertical, 4)
                 utilityAction("Forget taste memory", symbol: "eraser", disabled: request.feedbackBusy || request.isSending || request.isStarting) { request.clearTaste() }
             }.font(.system(size: 12)).padding(6).frame(width: 225)
@@ -608,7 +770,7 @@ struct MochiCompanionCard: View {
                     .accessibilityValue(request.discoveryMode == mode ? "Selected" : "Not selected")
                     .accessibilityIdentifier("mochiDiscoveryMode-\(mode.rawValue)")
                 }
-                Text(artists.names.isEmpty ? "Add a favorite artist with the heart button to use Familiar or Discover." : "Applies to your next request.")
+                Text(artists.names.isEmpty ? "Add a favorite artist in Listening options to use Familiar or Discover." : "Applies to your next request.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
             }.font(.system(size: 12)).padding(5).frame(width: 220)
         }
@@ -671,6 +833,10 @@ struct MochiCompanionCard: View {
                         .accessibilityIdentifier("mochiDiscoverySource")
                         .help(request.selection?.warnings?.joined(separator: "\n") ?? "Music discovered through Last.fm and ranked by Mochi")
                     Spacer()
+                    if request.isSessionActive {
+                        Text(request.isRefilling ? "Finding more…" : "Continuous · \(request.queuedSongCount) queued")
+                            .accessibilityIdentifier("mochiContinuousStatus")
+                    }
                     if let mode = request.selection?.discoveryMode, mode != request.discoveryMode {
                         Text(mode.title).accessibilityLabel("\(mode.title) picks")
                             .help("The mode used for these songs. The dropdown applies to your next request.")

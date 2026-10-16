@@ -216,6 +216,10 @@ struct DiscoveryChecks {
         precondition(track.details == "Musical features unavailable")
         let exact = try decodeSpotify(spotify())
         precondition(SpotifyRecordingMatcher.match(track, candidates: [exact])?.id == spotifyID)
+        let remaster = try decodeSpotify(spotify("Quiet Window - 2020 Remaster"))
+        precondition(SpotifyRecordingMatcher.match(track, candidates: [remaster])?.id == spotifyID)
+        let featureBound = try decodeSource(source(extras: ["bpm": 90]))
+        precondition(SpotifyRecordingMatcher.match(featureBound, candidates: [remaster]) == nil)
         for bad in [spotify(artist: "Cover Artist"), spotify("Quiet Window - Live"),
                     spotify("Quiet Window (Remix)"), spotify(extras: ["is_playable": false])] {
             let candidate = try decodeSpotify(bad)
@@ -260,8 +264,8 @@ struct DiscoveryChecks {
             try json(["tracks": ["items": [spotify("Wrong Song - Live")]]]),
             try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
         model.submit("piano"); try await settle(model)
-        precondition(model.reply == "Started 1 of 2 matches." && model.resolvedTracks.count == 1)
-        precondition(model.resultNotice == model.reply, "Partial playback must remain visible")
+        precondition(model.reply == "Playing Quiet Window. Continuous listening is on." && model.resolvedTracks.count == 1)
+        precondition(model.resultNotice?.contains("1 of 2") == true, "Partial matching must remain visible")
         let requests = SpotifyMockProtocol.server.requests()
         let body = try JSONSerialization.jsonObject(with: spotifyRequestBody(requests[4])!) as! [String: Any]
         precondition(body["uris"] as? [String] == ["spotify:track:\(spotifyID)"])
@@ -290,8 +294,8 @@ struct DiscoveryChecks {
             try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
         model.submit("piano"); try await settle(model)
         let queue = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[4])!) as! [String: Any]
-        precondition(queue["uris"] as? [String] == ["spotify:track:\(spotifyID)", "spotify:track:\(secondID)"])
-        precondition(model.reply == "Started 2 of 2 matches.")
+        precondition(queue["uris"] as? [String] == ["spotify:track:\(spotifyID)"])
+        precondition(model.isSessionActive && model.reply == "Playing Quiet Window. Continuous listening is on.")
         precondition(model.resultNotice == nil, "Successful playback should not leave a banner")
         print("PASS: multiple confirmed recordings start in recommendation order")
 
@@ -303,7 +307,7 @@ struct DiscoveryChecks {
         let refreshedRequests = SpotifyMockProtocol.server.requests()
         precondition(refreshedRequests[2].url?.path == "/api/token")
         precondition(refreshedRequests[3].value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access")
-        precondition(model.reply == "Started 1 of 1 matches.")
+        precondition(model.reply == "Playing Quiet Window. Continuous listening is on.")
         print("PASS: discovery resolution refreshes a rejected token once before playback")
 
         SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
@@ -359,7 +363,7 @@ struct DiscoveryChecks {
         SpotifyMockProtocol.server.configure([try json(["tracks": ["items": [spotify()]]]),
             try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
         offline.playMatches(); try await settle(offline)
-        precondition(offline.reply == "Started 1 of 1 matches.")
+        precondition(offline.reply == "Playing Quiet Window. Continuous listening is on.")
         print("PASS: recommendations made before connection can be matched and played afterward")
 
         SpotifyMockProtocol.server.configure([try response(), SpotifyReply(status: 429, headers: ["Retry-After": "60"])])
@@ -419,7 +423,7 @@ struct DiscoveryChecks {
             try json(["tracks": ["items": [spotify("New Piano")]]]),
             try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
         similarConnected.moreLikeThis(track); try await settle(similarConnected)
-        precondition(similarConnected.reply == "Started 1 of 1 matches.")
+        precondition(similarConnected.reply == "Playing New Piano. Continuous listening is on.")
         precondition(SpotifyMockProtocol.server.requests().first?.url?.path == "/more-like-this")
         precondition(SpotifyMockProtocol.server.requests().filter { $0.httpMethod == "PUT" }.count == 1)
 
@@ -464,7 +468,7 @@ struct DiscoveryChecks {
         let localStarts = await desktop.startedTracks
         precondition(localStarts == ["spotify:track:\(spotifyID)"])
         precondition(desktopRequest.resolvedTracks.count == 2)
-        precondition(desktopRequest.reply == "Playing the first match on Spotify desktop.")
+        precondition(desktopRequest.reply == "Playing Quiet Window. Continuous listening is on.")
         precondition(!SpotifyMockProtocol.server.requests().contains(where: { $0.url?.path.hasPrefix("/v1/me/player") == true }))
         precondition(!SpotifyMockProtocol.server.requests().contains(where: { $0.url?.path == "/api/token" }))
         print("PASS: optional API matching hands only the first ranked URI to desktop playback, never a fake queue")
