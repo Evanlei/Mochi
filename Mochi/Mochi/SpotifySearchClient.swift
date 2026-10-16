@@ -68,7 +68,8 @@ final class SpotifySearchClient {
     }
 
     /// Deterministic entity resolution only. Spotify payloads never reach the ML backend.
-    func resolve(_ track: MochiSelectedTrack, accessToken: String, timeout: TimeInterval = 15) async throws -> SpotifySearchTrack? {
+    func resolve(_ track: MochiSelectedTrack, accessToken: String, timeout: TimeInterval = 15, thorough: Bool = false) async throws -> SpotifySearchTrack? {
+        let deadline = Date().addingTimeInterval(timeout)
         var components = URLComponents(string: "https://api.spotify.com/v1/search")!
         let query: String
         if let isrc = track.isrc, isrc.range(of: "^[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}$", options: .regularExpression) != nil {
@@ -80,7 +81,14 @@ final class SpotifySearchClient {
         }
         components.queryItems = [URLQueryItem(name: "q", value: query), URLQueryItem(name: "type", value: "track"), URLQueryItem(name: "limit", value: "10")]
         let candidates = try await search(url: components.url!, accessToken: accessToken, timeout: timeout)
-        return SpotifyRecordingMatcher.match(track, candidates: candidates)
+        if let match = SpotifyRecordingMatcher.match(track, candidates: candidates) { return match }
+        guard thorough, track.isrc == nil, deadline.timeIntervalSinceNow > 0 else { return nil }
+        // A second spelling/search form can find releases omitted by fielded search.
+        // It changes retrieval only: the same recording checks still apply.
+        components.queryItems = [URLQueryItem(name: "q", value: "\(track.title) \(track.artist)"),
+                                URLQueryItem(name: "type", value: "track"), URLQueryItem(name: "limit", value: "10")]
+        let fallback = try await search(url: components.url!, accessToken: accessToken, timeout: deadline.timeIntervalSinceNow)
+        return SpotifyRecordingMatcher.match(track, candidates: candidates + fallback)
     }
 }
 
@@ -98,7 +106,7 @@ struct SpotifySearchTrack: Decodable, Identifiable, Sendable {
     let externalIDs: ExternalIDs?
 
     var artistNames: String { artists.map(\.name).joined(separator: ", ") }
-    var canPlay: Bool { hasValidIdentity && isPlayable != false && restrictions == nil }
+    var canPlay: Bool { hasValidIdentity && isPlayable != false && restrictions?.reason == nil }
     var spotifyURL: URL { URL(string: "https://open.spotify.com/track/\(id)")! }
     var artworkURL: URL? {
         guard let raw = album.images?.last?.url, let url = URL(string: raw), url.scheme == "https" else { return nil }
@@ -150,7 +158,9 @@ enum SpotifyRecordingMatcher {
     }
 
     static func match(_ source: MochiSelectedTrack, candidates: [SpotifySearchTrack]) -> SpotifySearchTrack? {
+        var seen = Set<String>()
         let eligible = candidates.filter { candidate in
+            guard seen.insert(candidate.uri).inserted else { return false }
             guard candidate.canPlay, versions(source.title) == versions(candidate.name),
                   similarity(source.title, candidate.name) >= 0.96,
                   candidate.artists.contains(where: { similarity(source.artist, $0.name) >= 0.96 }) else { return false }
@@ -165,8 +175,19 @@ enum SpotifyRecordingMatcher {
         }
         if eligible.count <= 1 { return eligible.first }
         let isrcs = Set(eligible.compactMap { $0.externalIDs?.isrc?.uppercased() })
-        guard isrcs.count == 1, eligible.allSatisfy({ $0.externalIDs?.isrc != nil }) else { return nil }
-        return eligible.sorted { $0.id < $1.id }.first
+        if isrcs.count == 1, eligible.allSatisfy({ $0.externalIDs?.isrc != nil }) {
+            return eligible.sorted { $0.id < $1.id }.first
+        }
+        // Some search responses omit ISRC. Exact artist/title, version and a
+        // near-identical known duration identify duplicate album/single releases.
+        // Differing known ISRCs remain ambiguous; measured sources stay strict.
+        let durations = eligible.compactMap(\.durationMS)
+        guard source.isrc == nil, source.featureSpotifyID == nil, isrcs.count <= 1,
+              durations.count == eligible.count, let low = durations.min(), let high = durations.max(),
+              low > 0, high - low <= 1500,
+              eligible.allSatisfy({ normalized($0.name) == normalized(source.title)
+                  && $0.artists.first.map { normalized($0.name) == normalized(source.artist) } == true }) else { return nil }
+        return eligible.first
     }
 }
 

@@ -223,6 +223,12 @@ struct DiscoveryChecks {
         }
         let duplicate = try decodeSpotify(spotify(id: "0000000000000000000002"))
         precondition(SpotifyRecordingMatcher.match(track, candidates: [exact, duplicate]) == nil)
+        let albumCopy = try decodeSpotify(spotify(extras: ["duration_ms": 200000]))
+        let singleCopy = try decodeSpotify(spotify(id: "0000000000000000000002", extras: ["duration_ms": 200500]))
+        precondition(SpotifyRecordingMatcher.match(track, candidates: [albumCopy, singleCopy])?.id == spotifyID)
+        let differentRecording = try decodeSpotify(spotify(id: "0000000000000000000002", extras: ["duration_ms": 240000]))
+        precondition(SpotifyRecordingMatcher.match(track, candidates: [albumCopy, differentRecording]) == nil)
+        precondition(SpotifyRecordingMatcher.match(track, candidates: [exact, exact])?.id == spotifyID)
         let reissue = try decodeSpotify(spotify(id: "0000000000000000000002", extras: ["external_ids": ["isrc": isrc]]))
         let original = try decodeSpotify(spotify(extras: ["external_ids": ["isrc": isrc]]))
         precondition(SpotifyRecordingMatcher.match(track, candidates: [reissue, original])?.id == spotifyID)
@@ -264,6 +270,17 @@ struct DiscoveryChecks {
         precondition(Set(event.keys) == ["event_id", "request_id", "track_id", "event"])
         precondition(event["event"] as? String == "select" && event["request_id"] as? String == requestID)
         print("PASS: independent live contract, ranked partial playback, first-party feedback without Spotify payloads")
+
+        let unresolved = try decodeSource(second)
+        precondition(model.canPlay(unresolved), "An unresolved live song must allow a fresh lookup")
+        SpotifyMockProtocol.server.configure([
+            try json(["tracks": ["items": []]]),
+            try json(["tracks": ["items": [spotify("Wrong Song", id: "0000000000000000000002")]]]),
+            try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
+        model.play(try decodeSource(second)); try await settle(model)
+        precondition(model.resolvedTracks[second["id"] as! String]?.name == "Wrong Song")
+        precondition(SpotifyMockProtocol.server.requests()[1].url?.query?.contains("track:") != true)
+        print("PASS: unresolved rows retry with alternate retrieval and only play a confirmed recording")
 
         second["title"] = "Quiet Dawn"
         let secondID = "0000000000000000000002"

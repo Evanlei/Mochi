@@ -249,7 +249,7 @@ final class MochiRequestModel: ObservableObject {
     }
 
     func canPlay(_ track: MochiSelectedTrack) -> Bool {
-        isConnected && !isSending && !isStarting && !isPlaybackBusy && !dislikedTracks.contains(track.id) && resolvedTracks[track.id] != nil
+        isConnected && selection?.catalogKind == .lastfmLive && !isSending && !isStarting && !isPlaybackBusy && !dislikedTracks.contains(track.id)
             && (retryAfter.map { $0 <= Date() } ?? true)
     }
 
@@ -272,7 +272,7 @@ final class MochiRequestModel: ObservableObject {
     }
 
     func play(_ track: MochiSelectedTrack) {
-        guard canPlay(track), let match = resolvedTracks[track.id], let auth, let playback,
+        guard canPlay(track), let auth, let playback,
               selection?.tracks.contains(where: { $0.id == track.id }) == true else { return }
         let generation = requestGeneration
         let connection = auth.connectionVersion
@@ -281,6 +281,35 @@ final class MochiRequestModel: ObservableObject {
         playTask = Task { [weak self] in
             guard let self else { return }
             defer { if generation == self.requestGeneration { self.isStarting = false; self.playTask = nil } }
+            let match: SpotifySearchTrack
+            do {
+                if let cached = self.resolvedTracks[track.id] { match = cached }
+                else {
+                    self.reply = "Finding this song on Spotify…"
+                    let token = try await auth.validAccessToken()
+                    try self.check(generation, auth: auth, connection: connection)
+                    let found: SpotifySearchTrack?
+                    do { found = try await self.resolver.resolve(track, accessToken: token, thorough: true) }
+                    catch SpotifySearchError.unauthorized {
+                        let refreshed = try await auth.validAccessToken(forceRefresh: true)
+                        try self.check(generation, auth: auth, connection: connection)
+                        found = try await self.resolver.resolve(track, accessToken: refreshed, thorough: true)
+                    }
+                    try self.check(generation, auth: auth, connection: connection)
+                    guard let found else {
+                        self.resultNotice = "Couldn't confirm this recording. Use Find on Spotify in its menu."
+                        return
+                    }
+                    match = found
+                    self.resolvedTracks[track.id] = match
+                }
+            } catch {
+                guard generation == self.requestGeneration, !Task.isCancelled else { return }
+                if case SpotifySearchError.rateLimited(let delay) = error { self.retryAfter = Date().addingTimeInterval(delay) }
+                if case SpotifySearchError.quotaExceeded(let delay) = error { self.retryAfter = Date().addingTimeInterval(delay) }
+                self.resultNotice = error.localizedDescription
+                return
+            }
             let accepted = await playback.startTrack(uri: match.uri, using: auth)
             guard generation == self.requestGeneration, auth.isConnected, connection == auth.connectionVersion else { return }
             self.reply = playback.errorMessage ?? (accepted ? "Playing \(track.title)." : "Playback is busy. Try again.")
