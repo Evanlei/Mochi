@@ -255,6 +255,7 @@ struct DiscoveryChecks {
             try state(), SpotifyReply(status: 204), try state(), try json(["status": "ok"])])
         model.submit("piano"); try await settle(model)
         precondition(model.reply == "Started 1 of 2 matches." && model.resolvedTracks.count == 1)
+        precondition(model.resultNotice == model.reply, "Partial playback must remain visible")
         let requests = SpotifyMockProtocol.server.requests()
         let body = try JSONSerialization.jsonObject(with: spotifyRequestBody(requests[4])!) as! [String: Any]
         precondition(body["uris"] as? [String] == ["spotify:track:\(spotifyID)"])
@@ -274,6 +275,7 @@ struct DiscoveryChecks {
         let queue = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[4])!) as! [String: Any]
         precondition(queue["uris"] as? [String] == ["spotify:track:\(spotifyID)", "spotify:track:\(secondID)"])
         precondition(model.reply == "Started 2 of 2 matches.")
+        precondition(model.resultNotice == nil, "Successful playback should not leave a banner")
         print("PASS: multiple confirmed recordings start in recommendation order")
 
         SpotifyMockProtocol.server.configure([try response(), SpotifyReply(status: 401),
@@ -290,6 +292,13 @@ struct DiscoveryChecks {
         SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
         model.feedback(track, event: .like); try await settle(model)
         precondition(model.likedTracks.contains(sourceID))
+        precondition(model.feedbackError == nil)
+        SpotifyMockProtocol.server.configure([SpotifyReply(status: 503)])
+        model.feedback(track, event: .dislike); try await settle(model)
+        precondition(model.feedbackError != nil && model.likedTracks.contains(sourceID))
+        SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
+        model.feedback(track, event: .like); try await settle(model)
+        precondition(model.feedbackError == nil, "Retry should clear the feedback error")
         SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
         model.clearTaste(); try await settle(model)
         precondition(model.likedTracks.isEmpty && SpotifyMockProtocol.server.requests()[0].httpMethod == "DELETE")
@@ -321,6 +330,7 @@ struct DiscoveryChecks {
         SpotifyMockProtocol.server.configure([try response()])
         offline.submit("piano"); try await settle(offline)
         precondition(offline.reply.contains("Find on Spotify"))
+        precondition(offline.resultNotice == nil, "The song menu already provides the disconnected handoff")
         precondition(SpotifyMockProtocol.server.requests().count == 1)
         let handoff = try decodeSource(source("A/B?C#D%", extras: ["artist": "Björk & friends"]))
         precondition(handoff.spotifySearchURL?.host == "open.spotify.com")

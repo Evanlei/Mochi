@@ -156,6 +156,22 @@ struct CompanionChecks {
             let action = unsafeBitCast(element.method(for: selector), to: (@convention(c) (NSObject, Selector) -> Bool).self)
             return action(element, selector)
         }
+        func popupButton(_ label: String) -> NSObject? {
+            for window in NSApp.windows where window.isVisible {
+                if let content = window.contentView, let item = button(label, in: content) { return item }
+            }
+            return nil
+        }
+        func utilityButton(_ label: String, in panel: NSPanel) async throws -> NSObject {
+            guard let options = button("Listening options", in: panel.contentView!) else { fatalError("Missing listening options") }
+            precondition(press(options))
+            let deadline = Date().addingTimeInterval(2)
+            repeat {
+                if let item = popupButton(label) { return item }
+                try await Task.sleep(for: .milliseconds(20))
+            } while Date() < deadline
+            fatalError("Missing listening action: \(label)")
+        }
         func modeChoice(_ mode: MochiDiscoveryMode, in panel: NSPanel) async throws -> NSObject {
             guard let toggle = button("Music discovery preference", in: panel.contentView!) else {
                 fatalError("Compact discovery dropdown is not accessible")
@@ -176,9 +192,7 @@ struct CompanionChecks {
             }
         }
         try await Task.sleep(for: .milliseconds(150))
-        guard let toggle = button("Search songs and artists", in: card.contentView!) else {
-            fatalError("Search toggle is not accessible")
-        }
+        let toggle = try await utilityButton("Search songs and artists", in: card)
         precondition(press(toggle))
         try await Task.sleep(for: .milliseconds(100))
         precondition(companion.request.isSearchPresented, "Search button did not switch modes")
@@ -266,7 +280,7 @@ struct CompanionChecks {
         menu.contentView = nil
         print("PASS: menu appearance refreshes the shared playback snapshot")
 
-        guard let back = button("Back to listening request", in: card.contentView!) else { fatalError("Missing back button") }
+        let back = try await utilityButton("Back to listening request", in: card)
         precondition(press(back))
         try await Task.sleep(for: .milliseconds(100))
         let listeningSize = companion.request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size
@@ -356,10 +370,10 @@ struct CompanionChecks {
                 let first = companion.request.selection!.tracks[0]
                 precondition(findIdentifier("mochiSelectedTrack-\(first.id)", in: card.contentView!) != nil,
                              "Selected sample row was not rendered accessibly")
-                guard let searchToggle = button("Search songs and artists", in: card.contentView!) else { fatalError("Missing search toggle") }
+                let searchToggle = try await utilityButton("Search songs and artists", in: card)
                 precondition(press(searchToggle))
                 try await Task.sleep(for: .milliseconds(100))
-                guard let backToggle = button("Back to listening request", in: card.contentView!) else { fatalError("Missing return toggle") }
+                let backToggle = try await utilityButton("Back to listening request", in: card)
                 precondition(press(backToggle))
                 try await Task.sleep(for: .milliseconds(100))
                 precondition(companion.request.selection!.tracks[0].id == first.id && card.frame.size == MochiCompanionCard.searchSize)
@@ -374,7 +388,7 @@ struct CompanionChecks {
                 try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent(filename))
             }
         }
-        guard let reset = button("New listening request", in: card.contentView!) else { fatalError("Missing request reset") }
+        let reset = try await utilityButton("New listening request", in: card)
         precondition(press(reset))
         try await Task.sleep(for: .milliseconds(100))
         try await waitForSize(card, MochiCompanionCard.size)
@@ -400,8 +414,19 @@ struct CompanionChecks {
             try await waitForSize(card, MochiCompanionCard.searchSize)
             precondition(card.frame.size == MochiCompanionCard.searchSize)
             precondition(findIdentifier("mochiDiscoverySource", in: card.contentView!) != nil)
-            precondition(button("Like Development recording 1", in: card.contentView!) != nil)
-            precondition(button("Dislike Development recording 1", in: card.contentView!) != nil)
+            precondition(button("Like Development recording 1", in: card.contentView!) == nil, "Song rows should expose only their overflow control")
+            precondition(button("Dislike Development recording 1", in: card.contentView!) == nil)
+            precondition(press(button("Options for Development recording 1", in: card.contentView!)!))
+            try await Task.sleep(for: .milliseconds(180))
+            precondition(popupButton("Like Development recording 1") != nil)
+            precondition(popupButton("Dislike Development recording 1") != nil)
+            // Return to the list through the popup's Escape action.
+            let popup = NSApp.keyWindow!
+            let dismissPopup = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+            popup.sendEvent(dismissPopup)
+            try await Task.sleep(for: .milliseconds(180))
+            precondition(card.isVisible && companion.isCardPresented)
             precondition(button("Play matches", in: card.contentView!) == nil)
             let seed = companion.request.selection!.tracks[0]
             precondition(findIdentifier("mochiSongOptions-\(seed.id)", in: card.contentView!) != nil,
@@ -412,6 +437,19 @@ struct CompanionChecks {
                 let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
                 view.cacheDisplay(in: view.bounds, to: image)
                 try image.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory).appendingPathComponent("live-selection-card.png"))
+                // cacheDisplay omits the window-composited Liquid Glass material.
+                // Flat diagnostic backdrops make text/layout visible in these image exports.
+                for scheme in [ColorScheme.light, .dark] {
+                    let preview = NSHostingView(rootView: MochiCompanionCard(request: companion.request, search: companion.search, onClose: {})
+                        .environment(\.colorScheme, scheme)
+                        .background(scheme == .light ? Color.white : Color.black))
+                    preview.frame = NSRect(origin: .zero, size: MochiCompanionCard.searchSize)
+                    preview.layoutSubtreeIfNeeded()
+                    let bitmap = preview.bitmapImageRepForCachingDisplay(in: preview.bounds)!
+                    preview.cacheDisplay(in: preview.bounds, to: bitmap)
+                    try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: previewDirectory)
+                        .appendingPathComponent("layout-results-\(scheme == .light ? "light" : "dark").png"))
+                }
             }
             print("PASS: live discovery attribution, accessible feedback controls, nullable-feature rows and compact card")
             let similarRows = rows.enumerated().map { index, row in
@@ -530,11 +568,17 @@ struct CompanionChecks {
         let unavailableMode = try await modeChoice(.familiar, in: artistCard)
         _ = press(unavailableMode)
         precondition(artistRequest.discoveryMode == .balanced, "Familiar should require a favorite artist")
-        guard let edit = button("Edit favorite artists", in: artistCard.contentView!) else { fatalError("No favorite editor button") }
+        if let balanced = popupButton("Balanced recommendations") { precondition(press(balanced)); try await Task.sleep(for: .milliseconds(150)) }
+        let edit = try await utilityButton("Edit favorite artists", in: artistCard)
         precondition(press(edit)); try await Task.sleep(for: .milliseconds(100))
         for name in ["Fixture Artist", "Second Fixture Artist", "Third Fixture Artist"] {
             let suggestions = name == "Fixture Artist" ? [name, "Fixture Band", "An Artist With a Very Long Display Name That Must Truncate", "音楽", "Fixture Singer"] : [name]
             SpotifyMockProtocol.server.configure([SpotifyReply(data: try JSONSerialization.data(withJSONObject: ["query": name, "artists": suggestions]))])
+            let focusDeadline = Date().addingTimeInterval(2)
+            while !(artistCard.firstResponder is NSTextInputClient) {
+                precondition(Date() < focusDeadline, "Artist input did not receive focus after the options menu closed")
+                try await Task.sleep(for: .milliseconds(10))
+            }
             guard let artistInput = artistCard.firstResponder as? NSTextInputClient else { fatalError("Artist input is not focused") }
             artistInput.insertText(name, replacementRange: NSRange(location: NSNotFound, length: 0))
             let deadline = Date().addingTimeInterval(3)
@@ -630,11 +674,16 @@ struct CompanionChecks {
         let sentMode = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
         precondition(sentMode["discovery_mode"] as? String == "familiar")
         try await Task.sleep(for: .milliseconds(100))
-        precondition(findIdentifier("mochiAppliedDiscoveryMode", in: artistCard.contentView!) != nil)
+        precondition(findIdentifier("mochiAppliedDiscoveryMode", in: artistCard.contentView!) == nil, "Matching modes should not repeat a label")
         precondition(artistRequest.selection?.discoveryMode == .familiar)
         let discoverChoice = try await modeChoice(.discover, in: artistCard)
         precondition(press(discoverChoice))
         precondition(artistRequest.discoveryMode == .discover && artistRequest.selection?.discoveryMode == .familiar)
+        let appliedModeDeadline = Date().addingTimeInterval(2)
+        while findIdentifier("mochiAppliedDiscoveryMode", in: artistCard.contentView!) == nil {
+            precondition(Date() < appliedModeDeadline, "A changed next-request mode must identify the existing batch")
+            try await Task.sleep(for: .milliseconds(10))
+        }
         if let directory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
             try await Task.sleep(for: .milliseconds(100))
             let view = artistCard.contentView!

@@ -123,6 +123,7 @@ final class MochiCompanionController: ObservableObject {
 
         let card = CompanionPanel(contentRect: NSRect(origin: .zero, size: cardSize), acceptsKeyboard: true)
         card.title = "Talk to Mochi"
+        card.hasShadow = false // Liquid Glass supplies its own edge and depth.
         let cardView = NSHostingView(rootView: MochiCompanionCard(request: request, search: search) { [weak self] in self?.closeCard() })
         // This controller owns panel sizes; stale intrinsic constraints must not pin the compact height.
         cardView.sizingOptions = []
@@ -202,7 +203,7 @@ final class MochiCompanionController: ObservableObject {
         cardPanel.makeKeyAndOrderFront(nil)
         if animate {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
+                context.duration = 0.12
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 cardPanel.animator().alphaValue = 1
             }
@@ -223,7 +224,7 @@ final class MochiCompanionController: ObservableObject {
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.1
+            context.duration = 0.08
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             cardPanel.animator().alphaValue = 0
         } completionHandler: { [weak self, weak cardPanel] in
@@ -280,18 +281,9 @@ final class MochiCompanionController: ObservableObject {
               let screen = CompanionPlacement.closestFrame(to: NSPoint(x: mascotPanel.frame.midX, y: mascotPanel.frame.midY),
                                                             frames: NSScreen.screens.map(\.visibleFrame)) else { return }
         let target = NSRect(origin: CompanionPlacement.cardOrigin(near: mascotPanel.frame, size: size, inside: screen), size: size)
-        let switchesSide = (cardPanel.frame.minY >= mascotPanel.frame.maxY) != (target.minY >= mascotPanel.frame.maxY)
-        // Window geometry must follow the native content size. Keep this short and let AppKit
-        // retarget its animator; never slide the panel across Mochi when it changes sides.
-        guard isCardPresented, !switchesSide, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            cardPanel.setFrame(target, display: true)
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            cardPanel.animator().setFrame(target, display: true)
-        }
+        // SwiftUI already lays out the new result height. Tweening a second window size
+        // cropped and stretched that content; update the native bounds in one step.
+        cardPanel.setFrame(target, display: true)
     }
 
     private func monitorOutsideClicks() {
@@ -330,6 +322,7 @@ private final class CompanionPanel: NSPanel {
         self.acceptsKeyboard = acceptsKeyboard
         super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
+        animationBehavior = .none
         backgroundColor = .clear
         level = .floating
         isFloatingPanel = true
