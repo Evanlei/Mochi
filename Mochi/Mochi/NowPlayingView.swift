@@ -3,125 +3,66 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var spotify: SpotifyAuthModel
     @ObservedObject var playback: SpotifyPlaybackModel
+    @Binding var showsLinkEntry: Bool
     @State private var trackLink = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(playback.usesDesktopPlayer ? "Spotify desktop" : "Spotify Web API")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Menu {
-                    Button("Use desktop controls") {
-                        Task { await playback.enableDesktopControls() }
-                    }
-                    .disabled(playback.isBusy)
-                    Button("Use Web API controls") {
-                        playback.useWebPlayer()
-                        Task { await playback.refresh(using: spotify) }
-                    }
-                    .disabled(playback.isBusy)
-                } label: { Image(systemName: "slider.horizontal.3") }
-                .help("Choose Spotify controls")
-                .accessibilityLabel("Choose Spotify controls")
-            }
-            if !playback.usesDesktopPlayer {
-                Button("Use desktop controls") {
-                    Task { await playback.enableDesktopControls() }
-                }
-                .disabled(playback.isBusy)
-                .help("Control the Spotify Mac app without connecting a Spotify API account")
-            }
-            HStack {
-                Text("Now Playing").font(.headline)
-                Spacer()
-                if playback.isBusy { ProgressView().controlSize(.small) }
-                Button {
-                    Task { await playback.refresh(using: spotify) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh playback")
-                .accessibilityLabel("Refresh playback")
-                .disabled((!spotify.isConnected && !playback.usesDesktopPlayer) || playback.isBusy)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: playback.state?.isPlaying == true ? "waveform" : "music.note")
+                    .font(.system(size: 22, weight: .medium))
+                    .frame(width: 48, height: 48)
+                    .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(playback.state?.item?.name ?? "Nothing playing")
+                        .font(.system(size: 15, weight: .semibold)).lineLimit(2)
+                    Text(playback.state?.item?.subtitle ?? "Start a song in Spotify.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if !spotify.isConnected && !playback.usesDesktopPlayer {
-                Text("Use desktop controls, or connect the Spotify API.")
-                    .foregroundStyle(.secondary)
-            } else if let state = playback.state {
-                if let item = state.item {
-                    Text(item.name).font(.title3.weight(.semibold)).lineLimit(2)
-                    Text(item.subtitle).foregroundStyle(.secondary).lineLimit(2)
-                } else {
-                    Text(state.currentlyPlayingType == "ad" ? "Advertisement" : "No track information available")
-                }
-                HStack {
-                    Label(state.isPlaying ? "Playing" : "Paused", systemImage: state.isPlaying ? "waveform" : "pause.fill")
-                    Spacer()
-                    if let name = state.device?.name { Text(name).lineLimit(1) }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if state.device?.isRestricted == true {
-                    Text("This Spotify device does not allow remote controls.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            } else if playback.lastUpdatedAt != nil {
-                Text("Open Spotify and start a song, then refresh here.")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(playback.isBusy ? "Reading Spotify playback…" : "Refresh to read Spotify playback.")
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 20) {
-                Spacer()
+            HStack(spacing: 24) {
+                Spacer(minLength: 0)
                 control(.previous, symbol: "backward.end.fill", label: "Previous track")
                 let command: SpotifyPlaybackCommand = playback.state?.isPlaying == true ? .pause : .play
-                control(command, symbol: command == .pause ? "pause.fill" : "play.fill", label: command == .pause ? "Pause" : "Play")
+                control(command, symbol: command == .pause ? "pause.fill" : "play.fill",
+                        label: command == .pause ? "Pause" : "Play", prominent: true)
                 control(.next, symbol: "forward.end.fill", label: "Next track")
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .font(.title3)
 
-            if playback.usesDesktopPlayer {
-                HStack {
+            if let state = playback.state {
+                Text([state.isPlaying ? "Playing" : "Paused", state.device?.name].compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            if showsLinkEntry && playback.usesDesktopPlayer {
+                HStack(spacing: 6) {
                     TextField("Spotify track link", text: $trackLink)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Spotify track link")
-                        .onSubmit { playLink() }
-                    Button("Play link") { playLink() }
+                        .textFieldStyle(.roundedBorder).controlSize(.small)
+                        .accessibilityLabel("Spotify track link").onSubmit { playLink() }
+                    Button("Play link") { playLink() }.controlSize(.small)
                         .disabled(playback.isBusy || LocalSpotifyClient.trackURI(from: trackLink) == nil)
                 }
-                Text("Copy a song’s link in Spotify to play it here.")
-                    .font(.caption2).foregroundStyle(.secondary)
             }
-
-            if playback.isStale {
-                Text("Showing the last result. Refresh before using controls.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if let error = playback.errorMessage {
-                Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-            } else if let updated = playback.lastUpdatedAt {
-                Text("Updated \(updated.formatted(date: .omitted, time: .standard))")
-                    .font(.caption2).foregroundStyle(.secondary)
+            if playback.isStale || playback.errorMessage != nil {
+                Text(playback.errorMessage ?? "Playback is out of date. Refresh in Player settings.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("mochiMenuPlayer")
     }
 
-    private func control(_ command: SpotifyPlaybackCommand, symbol: String, label: String) -> some View {
-        Button {
-            Task { await playback.perform(command, using: spotify) }
-        } label: {
-            Image(systemName: symbol).frame(width: 30, height: 26)
+    private func control(_ command: SpotifyPlaybackCommand, symbol: String, label: String, prominent: Bool = false) -> some View {
+        Button { Task { await playback.perform(command, using: spotify) } } label: {
+            Image(systemName: symbol).font(.system(size: prominent ? 20 : 16, weight: .semibold))
+                .frame(width: prominent ? 44 : 32, height: 44)
+                .background(.primary.opacity(prominent ? 0.08 : 0), in: Circle())
+                .contentShape(Rectangle())
         }
-        .help(label)
-        .accessibilityLabel(label)
+        .buttonStyle(.plain).help(label).accessibilityLabel(label)
         .disabled((!spotify.isConnected && !playback.usesDesktopPlayer) || !playback.canPerform(command))
     }
 

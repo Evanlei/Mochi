@@ -421,7 +421,9 @@ struct CompanionChecks {
             precondition(popupButton("Like Development recording 1") != nil)
             precondition(popupButton("Dislike Development recording 1") != nil)
             // Return to the list through the popup's Escape action.
-            let popup = NSApp.keyWindow!
+            guard let popup = NSApp.windows.first(where: { window in
+                window.isVisible && window.contentView.map { button("Like Development recording 1", in: $0) != nil } == true
+            }) else { fatalError("Song options window missing") }
             let dismissPopup = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
             popup.sendEvent(dismissPopup)
@@ -504,6 +506,13 @@ struct CompanionChecks {
             try await Task.sleep(for: .milliseconds(150))
             precondition(localPlayback.state?.item?.name == "Test Song")
             precondition(button("Pause", in: localMenu.contentView!) != nil)
+            precondition(button("Play link", in: localMenu.contentView!) == nil, "Link entry stays out of the main player")
+            guard let settings = button("Player settings", in: localMenu.contentView!) else { fatalError("Player settings missing") }
+            precondition(press(settings))
+            try await Task.sleep(for: .milliseconds(150))
+            guard let linkAction = popupButton("Play a Spotify link") else { fatalError("Link action missing") }
+            precondition(press(linkAction))
+            try await Task.sleep(for: .milliseconds(150))
             precondition(button("Play link", in: localMenu.contentView!) != nil)
             precondition(SpotifyMockProtocol.server.requests().isEmpty)
             func editableField(in view: NSView) -> NSTextField? {
@@ -518,9 +527,13 @@ struct CompanionChecks {
             editor.insertText("https://open.spotify.com/track/0000000000000000000001?si=test", replacementRange: NSRange(location: NSNotFound, length: 0))
             try await Task.sleep(for: .milliseconds(50))
             precondition(press(button("Play link", in: localMenu.contentView!)!))
-            try await Task.sleep(for: .milliseconds(500))
+            let linkDeadline = Date().addingTimeInterval(3)
+            while await local.startedTracks.isEmpty || localPlayback.isBusy {
+                precondition(Date() < linkDeadline, "Link playback did not finish; field=\(field.stringValue), busy=\(localPlayback.isBusy)")
+                try await Task.sleep(for: .milliseconds(10))
+            }
             let starts = await local.startedTracks
-            precondition(starts == ["spotify:track:0000000000000000000001"] && !localPlayback.isBusy)
+            precondition(starts == ["spotify:track:0000000000000000000001"])
             precondition(SpotifyMockProtocol.server.requests().isEmpty)
             if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
                 let view = localMenu.contentView!

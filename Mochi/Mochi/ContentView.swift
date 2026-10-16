@@ -4,46 +4,100 @@ struct ContentView: View {
     @ObservedObject var spotify: SpotifyAuthModel
     @ObservedObject var playback: SpotifyPlaybackModel
     @ObservedObject var companion: MochiCompanionController
+    @State private var settingsPresented = false
+    @State private var showsLinkEntry = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Mochi")
-                    .font(.headline)
+                Text("Spotify").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
-                if spotify.isBusy {
-                    ProgressView().controlSize(.small)
-                    Button("Cancel") { spotify.cancelConnection() }
-                } else if spotify.isConnected {
-                    Button("Disconnect") { spotify.disconnect() }
-                } else {
-                    Button("Connect Spotify API") { spotify.connect() }
-                        .help("Optional: enables automatic Spotify search and matching for API beta users")
+                if playback.isBusy { ProgressView().controlSize(.mini).accessibilityLabel("Updating playback") }
+                Button { settingsPresented.toggle() } label: {
+                    Image(systemName: "ellipsis").frame(width: 24, height: 22).contentShape(Rectangle())
                 }
+                .buttonStyle(.plain).help("Player settings").accessibilityLabel("Player settings")
+                .popover(isPresented: $settingsPresented, arrowEdge: .trailing) { settings }
             }
-            if !playback.usesDesktopPlayer || spotify.isBusy {
-                Text(spotify.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            NowPlayingView(spotify: spotify, playback: playback, showsLinkEntry: $showsLinkEntry)
+
+            if !spotify.isConnected && !playback.usesDesktopPlayer {
+                Button("Use desktop controls") { Task { await playback.enableDesktopControls() } }
+                    .controlSize(.small).disabled(playback.isBusy)
             }
-            Divider()
-            NowPlayingView(spotify: spotify, playback: playback)
+            ListeningSessionStatus(request: companion.request)
             Divider()
             HStack {
-                Button(companion.isVisible ? "Hide Mochi" : "Show Mochi") {
-                    companion.setVisible(!companion.isVisible)
-                }
+                Button(companion.isVisible ? "Hide Mochi" : "Show Mochi") { companion.setVisible(!companion.isVisible) }
+                    .accessibilityLabel(companion.isVisible ? "Hide Mochi" : "Show Mochi")
                 Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-            }
+                Button("Quit") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
+            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
         }
-        .padding()
-        .frame(width: 380)
+        .padding(16).frame(width: 300)
         .task {
-            // Opening the menu refreshes its snapshot without resetting shared in-flight work.
             if spotify.isConnected || playback.usesDesktopPlayer { await playback.refresh(using: spotify) }
+        }
+    }
+
+    private var settings: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(playback.usesDesktopPlayer ? "Spotify desktop controls" : "Spotify API controls")
+                .font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
+            settingsAction("Refresh playback", symbol: "arrow.clockwise", disabled: playback.isBusy || (!spotify.isConnected && !playback.usesDesktopPlayer)) {
+                Task { await playback.refresh(using: spotify) }
+            }
+            settingsAction("Open Spotify", symbol: "arrow.up.forward.app") {
+                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") { NSWorkspace.shared.open(url) }
+            }
+            if playback.usesDesktopPlayer {
+                settingsAction("Play a Spotify link", symbol: "link") { showsLinkEntry.toggle() }
+                settingsAction("Use Web API controls", symbol: "network", disabled: playback.isBusy) {
+                    playback.useWebPlayer(); Task { await playback.refresh(using: spotify) }
+                }
+            } else {
+                settingsAction("Use desktop controls", symbol: "desktopcomputer", disabled: playback.isBusy) {
+                    Task { await playback.enableDesktopControls() }
+                }
+            }
+            Divider().padding(.vertical, 4)
+            if spotify.isBusy {
+                ProgressView().controlSize(.small).padding(8)
+                settingsAction("Cancel connection", symbol: "xmark") { spotify.cancelConnection() }
+            } else if spotify.isConnected {
+                settingsAction("Disconnect Spotify API", symbol: "person.crop.circle.badge.xmark") { spotify.disconnect() }
+            } else {
+                settingsAction("Connect Spotify API", symbol: "person.crop.circle.badge.plus") { spotify.connect() }
+                Text("Optional connection for song matching and continuous listening.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
+            }
+            Text(spotify.statusMessage).font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
+        }.padding(6).frame(width: 235)
+    }
+
+    private func settingsAction(_ title: String, symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            var transaction = Transaction(); transaction.disablesAnimations = true
+            withTransaction(transaction) { settingsPresented = false; action() }
+        } label: {
+            Label(title, systemImage: symbol).font(.system(size: 12))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(disabled).accessibilityLabel(title)
+    }
+}
+
+private struct ListeningSessionStatus: View {
+    @ObservedObject var request: MochiRequestModel
+    var body: some View {
+        if request.isSessionActive {
+            HStack {
+                Text(request.isRefilling ? "Finding more music…" : "Continuous · \(request.queuedSongCount) queued")
+                Spacer()
+                Button { request.stopSession() } label: { Image(systemName: "stop.circle").frame(width: 24, height: 22) }
+                    .buttonStyle(.plain).help("Stop continuous listening").accessibilityLabel("Stop continuous listening")
+            }.font(.system(size: 10)).foregroundStyle(.secondary)
+        } else if let notice = request.resultNotice {
+            Text(notice).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
         }
     }
 }
