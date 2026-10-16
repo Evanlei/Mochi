@@ -237,7 +237,8 @@ final class MochiCompanionController: ObservableObject {
             Task { @MainActor [weak self] in self?.closeIfOutside() }
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            if event.window !== self?.mascotPanel && event.window !== self?.cardPanel { self?.closeCard() }
+            if event.window !== self?.mascotPanel && event.window !== self?.cardPanel,
+               event.window?.parent !== self?.cardPanel { self?.closeCard() }
             return event
         }
     }

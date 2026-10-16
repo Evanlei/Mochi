@@ -323,6 +323,14 @@ final class MochiRequestModel: ObservableObject {
         }
     }
 
+    func cancelRequest() {
+        guard isSending else { return }
+        requestGeneration = UUID()
+        sendTask?.cancel(); sendTask = nil
+        isSending = false
+        reply = hasSelectedTracks ? "Music matches ready." : "Request cancelled. You can edit and try again."
+    }
+
     func reset() {
         requestGeneration = UUID()
         sendTask?.cancel()
@@ -343,7 +351,7 @@ final class MochiRequestModel: ObservableObject {
 // MARK: - Companion card
 
 struct MochiCompanionCard: View {
-    static let size = CGSize(width: 300, height: 200)
+    static let size = CGSize(width: 300, height: 150)
     static let searchSize = CGSize(width: 300, height: 340)
     static let artistSize = CGSize(width: 300, height: 320)
     static func artistEditorSize(count: Int) -> CGSize {
@@ -355,6 +363,7 @@ struct MochiCompanionCard: View {
     @ObservedObject var artists: MochiArtistPreferencesModel
     var onClose: () -> Void
     @FocusState private var composerFocused: Bool
+    @State private var modePickerPresented = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(request: MochiRequestModel, search: SpotifySearchModel, onClose: @escaping () -> Void) {
@@ -362,26 +371,27 @@ struct MochiCompanionCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 6) {
-                Text(artists.isPresented ? "Who do you like listening to?" : (request.isSearchPresented ? "Search Spotify" : request.reply))
-                    .font(.system(size: 13)).lineSpacing(2)
-                    .lineLimit(3)
-                    .help(artists.isPresented ? "Choose favorite artists" : (request.isSearchPresented ? "Search Spotify" : request.reply))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("mochiReply")
+                if artists.isPresented || request.isSearchPresented {
+                    Text(artists.isPresented ? "Favorite artists" : "Search Spotify")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    discoveryPicker
+                    Spacer(minLength: 0)
+                }
                 if !artists.isPresented {
                     Button { request.isSearchPresented.toggle(); composerFocused = true } label: {
                         Image(systemName: request.isSearchPresented ? "bubble.left" : "magnifyingglass")
-                            .frame(width: 20, height: 20)
+                            .frame(width: 24, height: 24)
                     }
                     .help(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                     .accessibilityLabel(request.isSearchPresented ? "Back to listening request" : "Search songs and artists")
                     .accessibilityIdentifier("mochiSearchToggle")
                     .disabled(request.isSending || request.isStarting)
                     Button { artists.present() } label: {
-                        Image(systemName: artists.names.isEmpty ? "heart" : "heart.fill").frame(width: 20, height: 20)
+                        Image(systemName: artists.names.isEmpty ? "heart" : "heart.fill").frame(width: 24, height: 24)
                     }
                     .help("Favorite artists").accessibilityLabel("Edit favorite artists")
                     .disabled(request.isSending || request.isStarting || request.feedbackBusy)
@@ -391,7 +401,7 @@ struct MochiCompanionCard: View {
                             composerFocused = true
                         } label: {
                             Image(systemName: "arrow.counterclockwise")
-                                .frame(width: 20, height: 20)
+                                .frame(width: 24, height: 24)
                         }
                         .help(request.isSearchPresented ? "Clear search" : "New listening request")
                         .accessibilityLabel(request.isSearchPresented ? "Clear search" : "New listening request")
@@ -399,32 +409,12 @@ struct MochiCompanionCard: View {
                         .contextMenu { Button("Forget taste memory") { request.clearTaste() }.disabled(request.feedbackBusy || request.isSending || request.isStarting) }
                     }
                 }
-                Button(action: onClose) { Image(systemName: "xmark").frame(width: 20, height: 20) }
+                Button(action: onClose) { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .help("Close Mochi")
                     .accessibilityLabel("Close Mochi")
             }
             .buttonStyle(.plain)
             .font(.system(size: 10))
-
-            if !artists.isPresented && !request.isSearchPresented {
-                HStack(spacing: 3) {
-                    ForEach(MochiDiscoveryMode.allCases) { mode in
-                        Button { request.discoveryMode = mode } label: {
-                            Text(mode.title).font(.system(size: 10, weight: request.discoveryMode == mode ? .semibold : .regular))
-                                .frame(maxWidth: .infinity).padding(.vertical, 5)
-                                .background(request.discoveryMode == mode ? Color(hex: 0xDCE8D9).opacity(0.8) : Color.clear, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(mode != .balanced && artists.names.isEmpty)
-                        .help(artists.names.isEmpty && mode != .balanced ? "Add a favorite artist with the heart button first." : mode.detail)
-                        .accessibilityLabel("\(mode.title) recommendations")
-                        .accessibilityValue(request.discoveryMode == mode ? "Selected" : "Not selected")
-                        .accessibilityIdentifier("mochiDiscoveryMode-\(mode.rawValue)")
-                    }
-                }
-                .disabled(request.isSending || request.isStarting || request.feedbackBusy)
-                .accessibilityElement(children: .contain).accessibilityLabel("Music discovery preference")
-            }
 
             if artists.isPresented {
                 MochiArtistPreferencesView(artists: artists)
@@ -432,17 +422,23 @@ struct MochiCompanionCard: View {
                 searchContent
             } else if request.hasSelectedTracks {
                 selectionContent
-            } else if request.preferences.isEmpty {
+            } else if request.preferences.isEmpty && !request.isSending && request.reply == "What do you feel like\nlistening to?" {
                 HStack(spacing: 6) {
                     choice("Focus")
                     choice("Unwind")
                     choice("Surprise me")
                 }
             } else {
-                Text(request.summary)
-                    .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
-                    .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    .help(request.summary)
+                HStack(spacing: 6) {
+                    Text(request.reply)
+                        .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
+                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                        .help(request.reply).accessibilityIdentifier("mochiReply")
+                    if request.isSending {
+                        Button("Cancel") { request.cancelRequest() }
+                            .font(.system(size: 10)).buttonStyle(.plain)
+                    }
+                }
             }
 
             Spacer(minLength: 0)
@@ -496,7 +492,7 @@ struct MochiCompanionCard: View {
                 .background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(width: cardSize.width, height: cardSize.height)
         .foregroundStyle(Color.mochiInk)
         .background {
@@ -519,12 +515,61 @@ struct MochiCompanionCard: View {
 
     private var composerText: Binding<String> { request.isSearchPresented ? $search.query : $request.draft }
 
+    private var discoveryPicker: some View {
+        Button { modePickerPresented.toggle() } label: {
+            HStack(spacing: 5) {
+                Text(request.discoveryMode.title).font(.system(size: 11, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+            }.frame(height: 24).contentShape(Rectangle())
+        }
+        .help("Choose how familiar or adventurous your next request should be")
+        .accessibilityLabel("Music discovery preference")
+        .accessibilityValue(request.discoveryMode.title)
+        .accessibilityIdentifier("mochiDiscoveryPicker")
+        .disabled(request.isSending || request.isStarting || request.feedbackBusy)
+        .popover(isPresented: $modePickerPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(MochiDiscoveryMode.allCases) { mode in
+                    Button {
+                        request.discoveryMode = mode
+                        modePickerPresented = false
+                        composerFocused = true
+                    } label: {
+                        HStack {
+                            Text(mode.title)
+                            Spacer()
+                            if request.discoveryMode == mode { Image(systemName: "checkmark") }
+                        }.padding(8).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(mode != .balanced && artists.names.isEmpty)
+                    .help(mode.detail)
+                    .accessibilityLabel("\(mode.title) recommendations")
+                    .accessibilityValue(request.discoveryMode == mode ? "Selected" : "Not selected")
+                    .accessibilityIdentifier("mochiDiscoveryMode-\(mode.rawValue)")
+                }
+                Text(artists.names.isEmpty ? "Add a favorite artist with the heart button to use Familiar or Discover." : "Applies to your next request.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
+            }.font(.system(size: 12)).padding(5).frame(width: 220)
+        }
+        .onChange(of: request.isSending) { _, busy in if busy { modePickerPresented = false } }
+        .onChange(of: artists.isPresented) { _, editing in if editing { modePickerPresented = false } }
+        .onChange(of: request.isSearchPresented) { _, searching in if searching { modePickerPresented = false } }
+    }
+
     private func submit() {
         if request.isSearchPresented { search.search() } else { request.submit() }
     }
 
     private var selectionContent: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if request.isSending {
+                HStack {
+                    Text(request.reply).font(.system(size: 10)).lineLimit(1)
+                    Spacer()
+                    Button("Cancel") { request.cancelRequest() }.font(.system(size: 10)).buttonStyle(.plain)
+                }.foregroundStyle(Color.mochiMuted)
+            }
             if let seed = request.similarTo {
                 Text("More like \(seed)").font(.system(size: 9)).foregroundStyle(Color.mochiMuted)
                     .lineLimit(1).help("More like \(seed)")
@@ -557,8 +602,8 @@ struct MochiCompanionCard: View {
                     ForEach(request.selection?.tracks ?? []) { track in
                         HStack(spacing: 5) {
                           VStack(alignment: .leading, spacing: 2) {
-                            Text(track.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                            Text(track.artist).font(.system(size: 10)).lineLimit(1)
+                            Text(track.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            Text(track.artist).font(.system(size: 11)).foregroundStyle(Color.mochiMuted).lineLimit(1)
                             Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
                           }.frame(maxWidth: .infinity, alignment: .leading)
                           if request.selection?.catalogKind == .lastfmLive {
@@ -586,7 +631,7 @@ struct MochiCompanionCard: View {
                         }
                         .buttonStyle(.plain).font(.system(size: 10))
                         .frame(maxWidth: .infinity, alignment: .leading).padding(7)
-                        .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(alignment: .bottom) { Color.mochiMuted.opacity(0.12).frame(height: 0.5) }
                         .help("\(track.title)\n\(track.artist)\n\(track.description)")
                         .accessibilityElement(children: request.selection?.catalogKind == .lastfmLive ? .contain : .combine)
                         .accessibilityIdentifier("mochiSelectedTrack-\(track.id)")
