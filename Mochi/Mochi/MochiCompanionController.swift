@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 
 // MARK: - App lifetime
@@ -89,6 +90,9 @@ final class MochiCompanionController: ObservableObject {
     private var musicSubscription: AnyCancellable?
     private var cardSizeSubscription: AnyCancellable?
     private var artistReactionSubscription: AnyCancellable?
+    private var activitySubscription: AnyCancellable?
+    private var cardPresentationGeneration = 0
+    private(set) var isCardPresented = false
     private var isMusicPlaying = false
     private let mascotSize = NSSize(width: 108, height: 100)
     private var cardSize: CGSize {
@@ -132,12 +136,21 @@ final class MochiCompanionController: ObservableObject {
                 (searching || selection?.tracks.isEmpty == false ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
             }
             .removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] expanded in
-            self?.cardPanel?.setContentSize(expanded)
-            self?.positionCard()
+            self?.resizeCard(to: expanded)
         }
         artistReactionSubscription = request.artists.$lastAdded.compactMap { $0 }.sink { [weak self] _ in
             (self?.mascotPanel?.contentView as? MascotInteractionView)?.reactToPreference()
         }
+        let busy = request.$isSending.combineLatest(request.$isStarting, search.$isSearching, search.$isStarting)
+            .map { $0 || $1 || $2 || $3 }
+        activitySubscription = busy.combineLatest(request.$draft, search.$query, request.$isSearchPresented)
+            .map { busy, draft, query, searching -> MochiMascotActivity in
+                if busy { return .thinking }
+                return (searching ? query : draft).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .idle : .curious
+            }
+            .removeDuplicates().sink { [weak self] activity in
+                (self?.mascotPanel?.contentView as? MascotInteractionView)?.setActivity(activity)
+            }
 
         let saved = defaults.dictionary(forKey: "mochi.companion.position")
         let origin: NSPoint
@@ -165,7 +178,7 @@ final class MochiCompanionController: ObservableObject {
         defaults.set(visible, forKey: "mochi.companion.visible")
         (mascotPanel?.contentView as? MascotInteractionView)?.setAnimating(visible)
         if visible { mascotPanel?.orderFrontRegardless() }
-        else { closeCard(); mascotPanel?.orderOut(nil) }
+        else { closeCard(animated: false); mascotPanel?.orderOut(nil) }
     }
 
     func observeMusicPlayback(_ status: AnyPublisher<Bool, Never>) {
@@ -178,17 +191,48 @@ final class MochiCompanionController: ObservableObject {
 
     func toggleCard() {
         guard isVisible, let cardPanel else { return }
-        if cardPanel.isVisible { closeCard(); return }
+        if isCardPresented { closeCard(); return }
+        isCardPresented = true
+        cardPresentationGeneration += 1
+        cardPanel.ignoresMouseEvents = false
         positionCard()
         (mascotPanel?.contentView as? MascotInteractionView)?.setEngaged(true)
+        let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        cardPanel.alphaValue = animate ? 0 : 1
         cardPanel.makeKeyAndOrderFront(nil)
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                cardPanel.animator().alphaValue = 1
+            }
+        }
         monitorOutsideClicks()
     }
 
-    func closeCard() {
+    func closeCard(animated: Bool = true) {
+        isCardPresented = false
+        cardPresentationGeneration += 1
+        let generation = cardPresentationGeneration
         (mascotPanel?.contentView as? MascotInteractionView)?.setEngaged(false)
-        cardPanel?.orderOut(nil)
         removeMouseMonitors()
+        guard let cardPanel else { return }
+        cardPanel.ignoresMouseEvents = true
+        guard animated, cardPanel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            cardPanel.orderOut(nil); cardPanel.alphaValue = 1
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.1
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            cardPanel.animator().alphaValue = 0
+        } completionHandler: { [weak self, weak cardPanel] in
+            MainActor.assumeIsolated {
+                guard let self, self.cardPresentationGeneration == generation, !self.isCardPresented else { return }
+                cardPanel?.orderOut(nil)
+                cardPanel?.alphaValue = 1
+            }
+        }
     }
 
     func moveMascot(to origin: NSPoint) {
@@ -207,6 +251,7 @@ final class MochiCompanionController: ObservableObject {
     func stop() {
         request.artists.cancelSearch()
         artistReactionSubscription?.cancel(); artistReactionSubscription = nil
+        activitySubscription?.cancel(); activitySubscription = nil
         request.reset()
         search.reset()
         cardSizeSubscription?.cancel()
@@ -214,7 +259,7 @@ final class MochiCompanionController: ObservableObject {
         musicSubscription?.cancel()
         musicSubscription = nil
         savePosition()
-        closeCard()
+        closeCard(animated: false)
         (mascotPanel?.contentView as? MascotInteractionView)?.setAnimating(false)
         mascotPanel?.orderOut(nil)
         mascotPanel = nil
@@ -228,6 +273,25 @@ final class MochiCompanionController: ObservableObject {
               let frame = CompanionPlacement.closestFrame(to: NSPoint(x: mascotPanel.frame.midX, y: mascotPanel.frame.midY),
                                                            frames: NSScreen.screens.map(\.visibleFrame)) else { return }
         cardPanel.setFrameOrigin(CompanionPlacement.cardOrigin(near: mascotPanel.frame, size: cardPanel.frame.size, inside: frame))
+    }
+
+    private func resizeCard(to size: CGSize) {
+        guard let cardPanel, let mascotPanel,
+              let screen = CompanionPlacement.closestFrame(to: NSPoint(x: mascotPanel.frame.midX, y: mascotPanel.frame.midY),
+                                                            frames: NSScreen.screens.map(\.visibleFrame)) else { return }
+        let target = NSRect(origin: CompanionPlacement.cardOrigin(near: mascotPanel.frame, size: size, inside: screen), size: size)
+        let switchesSide = (cardPanel.frame.minY >= mascotPanel.frame.maxY) != (target.minY >= mascotPanel.frame.maxY)
+        // Window geometry must follow the native content size. Keep this short and let AppKit
+        // retarget its animator; never slide the panel across Mochi when it changes sides.
+        guard isCardPresented, !switchesSide, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            cardPanel.setFrame(target, display: true)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            cardPanel.animator().setFrame(target, display: true)
+        }
     }
 
     private func monitorOutsideClicks() {
@@ -285,6 +349,7 @@ private final class MascotInteractionView: NSView {
     private var dragged = false
     private let artwork = NSHostingView(rootView: MochiMascotView())
     private var hoverTrackingArea: NSTrackingArea?
+    private var activity = MochiMascotActivity.idle
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -299,7 +364,16 @@ private final class MascotInteractionView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-    func setMusicPlaying(_ playing: Bool) { artwork.rootView.isMusicPlaying = playing }
+    func setMusicPlaying(_ playing: Bool) {
+        if playing, !artwork.rootView.isMusicPlaying, artwork.rootView.isAnimating {
+            artwork.rootView.celebrationStartedAt = Date.timeIntervalSinceReferenceDate
+        }
+        artwork.rootView.isMusicPlaying = playing
+    }
+    func setActivity(_ activity: MochiMascotActivity) {
+        self.activity = activity
+        artwork.rootView.activityMotion.set(activity, at: Date.timeIntervalSinceReferenceDate)
+    }
     func reactToPreference() {
         recordInteraction()
         guard artwork.rootView.isAnimating else { return }
@@ -327,6 +401,7 @@ private final class MascotInteractionView: NSView {
         if active {
             artwork.rootView.isAnimating = true
             artwork.rootView.idleStartedAt = Date.timeIntervalSinceReferenceDate
+            artwork.rootView.activityMotion.set(activity, at: Date.timeIntervalSinceReferenceDate)
         }
         else {
             artwork.rootView = MochiMascotView(isAnimating: false, isMusicPlaying: artwork.rootView.isMusicPlaying)

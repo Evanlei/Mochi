@@ -482,7 +482,7 @@ struct MochiCompanionCard: View {
                             .frame(width: 26, height: 26)
                             .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(MochiPressStyle())
                     .disabled(request.isSearchPresented ? !search.canSubmit : !request.canSubmit)
                     .help(request.isSearchPresented ? "Search Spotify" : "Send listening request")
                     .accessibilityLabel(request.isSearchPresented ? "Search Spotify" : "Send listening request")
@@ -553,6 +553,8 @@ struct MochiCompanionCard: View {
             }.font(.system(size: 12)).padding(5).frame(width: 220)
         }
         .onChange(of: request.isSending) { _, busy in if busy { modePickerPresented = false } }
+        .onChange(of: request.isStarting) { _, busy in if busy { modePickerPresented = false } }
+        .onChange(of: request.feedbackBusy) { _, busy in if busy { modePickerPresented = false } }
         .onChange(of: artists.isPresented) { _, editing in if editing { modePickerPresented = false } }
         .onChange(of: request.isSearchPresented) { _, searching in if searching { modePickerPresented = false } }
     }
@@ -563,13 +565,14 @@ struct MochiCompanionCard: View {
 
     private var selectionContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if request.isSending {
-                HStack {
-                    Text(request.reply).font(.system(size: 10)).lineLimit(1)
-                    Spacer()
+            HStack {
+                Text(request.reply).font(.system(size: 11)).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading).help(request.reply)
+                    .accessibilityIdentifier("mochiReply")
+                if request.isSending {
                     Button("Cancel") { request.cancelRequest() }.font(.system(size: 10)).buttonStyle(.plain)
-                }.foregroundStyle(Color.mochiMuted)
-            }
+                }
+            }.foregroundStyle(Color.mochiMuted)
             if let seed = request.similarTo {
                 Text("More like \(seed)").font(.system(size: 9)).foregroundStyle(Color.mochiMuted)
                     .lineLimit(1).help("More like \(seed)")
@@ -604,17 +607,19 @@ struct MochiCompanionCard: View {
                           VStack(alignment: .leading, spacing: 2) {
                             Text(track.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
                             Text(track.artist).font(.system(size: 11)).foregroundStyle(Color.mochiMuted).lineLimit(1)
-                            Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
+                            if track.bpm != nil || track.vocals != nil || track.energy != nil {
+                                Text(track.details).font(.system(size: 9)).foregroundStyle(Color.mochiMuted).lineLimit(1)
+                            }
                           }.frame(maxWidth: .infinity, alignment: .leading)
                           if request.selection?.catalogKind == .lastfmLive {
                             if request.isConnected {
                                 Button { request.play(track) } label: { Image(systemName: "play.fill") }
                                     .disabled(!request.canPlay(track)).accessibilityLabel("Play \(track.title)")
                             }
-                            VStack(spacing: 7) {
-                                Button { request.feedback(track, event: .like) } label: { Image(systemName: request.likedTracks.contains(track.id) ? "hand.thumbsup.fill" : "hand.thumbsup") }
+                            HStack(spacing: 0) {
+                                Button { request.feedback(track, event: .like) } label: { Image(systemName: request.likedTracks.contains(track.id) ? "hand.thumbsup.fill" : "hand.thumbsup").frame(width: 24, height: 28) }
                                     .accessibilityLabel("Like \(track.title)")
-                                Button { request.feedback(track, event: .dislike) } label: { Image(systemName: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown") }
+                                Button { request.feedback(track, event: .dislike) } label: { Image(systemName: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown").frame(width: 24, height: 28) }
                                     .accessibilityLabel("Dislike \(track.title)")
                             }.disabled(request.feedbackBusy || request.isSending || request.isStarting)
                             Menu {
@@ -622,7 +627,7 @@ struct MochiCompanionCard: View {
                                     .disabled(!request.canDiscoverSimilar(track))
                                 if let url = track.spotifySearchURL { Link("Find on Spotify", destination: url) }
                                 if let url = track.lastfmURL { Link("Open on Last.fm", destination: url) }
-                            } label: { Image(systemName: "ellipsis").frame(width: 18, height: 22) }
+                            } label: { Image(systemName: "ellipsis").frame(width: 24, height: 28) }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                             .help("More like this, find on Spotify, or open on Last.fm")
                             .accessibilityLabel("Options for \(track.title)")
@@ -731,8 +736,19 @@ struct MochiCompanionCard: View {
                 .background(Color.white.opacity(0.3), in: Capsule())
                 .overlay(Capsule().strokeBorder(Color(hex: 0xA5BCB6).opacity(0.45), lineWidth: 1))
         }
-        .buttonStyle(.plain)
-        .disabled(request.isSending)
+        .buttonStyle(MochiPressStyle())
+        .disabled(request.isSending || request.isStarting)
+    }
+}
+
+private struct MochiPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(reduceMotion ? .easeOut(duration: 0.08) : .spring(response: configuration.isPressed ? 0.18 : 0.22, dampingFraction: 0.86), value: configuration.isPressed)
     }
 }
 
@@ -751,6 +767,33 @@ private struct CompanionGlass: NSViewRepresentable {
 
 // MARK: - Native vector rendering of design/mochi.svg
 
+enum MochiMascotActivity {
+    case idle, curious, thinking
+}
+
+// Retarget from the current pose, so cancel/retry and rapid edits never snap back to zero.
+struct MochiMascotActivityMotion {
+    private(set) var activity = MochiMascotActivity.idle
+    private var from = SIMD2<Double>.zero
+    private var target = SIMD2<Double>.zero
+    private var startedAt: TimeInterval = 0
+
+    mutating func set(_ activity: MochiMascotActivity, at time: TimeInterval) {
+        guard activity != self.activity else { return }
+        from = values(at: time)
+        target = activity == .curious ? SIMD2(1, 0) : (activity == .thinking ? SIMD2(0, 1) : .zero)
+        startedAt = time
+        self.activity = activity
+    }
+
+    func values(at time: TimeInterval, animate: Bool = true) -> SIMD2<Double> {
+        guard animate else { return target }
+        let progress = min(max((time - startedAt) / 0.22, 0), 1)
+        let eased = progress * progress * (3 - 2 * progress)
+        return from + (target - from) * eased
+    }
+}
+
 struct MochiMascotView: View {
     var isAnimating = true
     var isHovered = false
@@ -763,6 +806,8 @@ struct MochiMascotView: View {
     var idleStartedAt = Date.timeIntervalSinceReferenceDate
     var wakeStartedAt: TimeInterval?
     var wakeStrength: CGFloat = 0
+    var activityMotion = MochiMascotActivityMotion()
+    var celebrationStartedAt: TimeInterval?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -772,7 +817,8 @@ struct MochiMascotView: View {
                                     isHovered: isHovered, isHeld: isHeld, isEngaged: isEngaged, dragLean: dragLean,
                                     hoverStartedAt: hoverStartedAt, releasedAt: releasedAt,
                                     idleStartedAt: idleStartedAt, wakeStartedAt: wakeStartedAt,
-                                    wakeStrength: wakeStrength, animate: !reduceMotion)
+                                    wakeStrength: wakeStrength, activityMotion: activityMotion,
+                                    celebrationStartedAt: celebrationStartedAt, animate: !reduceMotion)
                 : MochiMascotPose())
         }
         .accessibilityHidden(true)
@@ -804,7 +850,9 @@ struct MochiMascotPose {
                    isHovered: Bool = false, isHeld: Bool = false, isEngaged: Bool = false,
                    dragLean: CGFloat = 0, hoverStartedAt: TimeInterval? = nil,
                    releasedAt: TimeInterval? = nil, idleStartedAt: TimeInterval? = nil,
-                   wakeStartedAt: TimeInterval? = nil, wakeStrength: CGFloat = 0, animate: Bool = true) -> Self {
+                   wakeStartedAt: TimeInterval? = nil, wakeStrength: CGFloat = 0,
+                   activityMotion: MochiMascotActivityMotion = .init(),
+                   celebrationStartedAt: TimeInterval? = nil, animate: Bool = true) -> Self {
         var pose = Self()
         let idleDuration = idleStartedAt.map { max(0, time - $0) } ?? 0
         let sleep = !isHovered && !isHeld && !isEngaged
@@ -812,6 +860,8 @@ struct MochiMascotPose {
         if !animate {
             // Reduce Motion still permits the sleep state, with a static pose and static z's.
             if isMusicPlaying { pose.happyEyes = 1; pose.smileDepth = 17 }
+            if activityMotion.activity == .curious { pose.eyeWidth = 1.2; pose.smileDepth = 9 }
+            if activityMotion.activity == .thinking { pose.eyeHeight = 0.8; pose.smileDepth = 1 }
             if sleep > 0 {
                 pose.scaleX = 1.07
                 pose.scaleY = 0.85
@@ -825,6 +875,7 @@ struct MochiMascotPose {
         let reacting = isActive(hoverStartedAt, at: time, duration: 1.5)
             || isActive(releasedAt, at: time, duration: 0.7)
             || isActive(wakeStartedAt, at: time, duration: 1.2)
+            || isActive(celebrationStartedAt, at: time, duration: 0.8)
         let listening = isMusicPlaying && !isHovered && !isHeld && !isEngaged && !reacting
         let breath = CGFloat(sin(time * .pi / 2.4))
         pose.scaleX = 1 - breath * 0.045
@@ -935,6 +986,40 @@ struct MochiMascotPose {
                 pose.rightWave = 0
             }
         }
+        if !isHeld, isEngaged || activityMotion.activity == .thinking {
+            let activity = activityMotion.values(at: time)
+            let release = min(reactionRelease(hoverStartedAt, at: time, duration: 1.5),
+                              reactionRelease(releasedAt, at: time, duration: 0.7),
+                              reactionRelease(wakeStartedAt, at: time, duration: 1.2),
+                              reactionRelease(celebrationStartedAt, at: time, duration: 0.8))
+            let curious = CGFloat(activity.x) * release, thinking = CGFloat(activity.y) * release
+            let rhythm = CGFloat(sin(time * 2.4))
+            pose.scaleX += (0.97 - pose.scaleX) * curious
+            pose.scaleY += (1.04 - pose.scaleY) * curious
+            pose.tilt += (-6 - pose.tilt) * curious
+            pose.lookX += (9 - pose.lookX) * curious
+            pose.eyeWidth += (1.2 - pose.eyeWidth) * curious
+            pose.smileDepth += (9 - pose.smileDepth) * curious
+            pose.scaleX += (1.04 + rhythm * 0.025 - pose.scaleX) * thinking
+            pose.scaleY += (0.94 - rhythm * 0.025 - pose.scaleY) * thinking
+            pose.tilt += (7 + rhythm * 3 - pose.tilt) * thinking
+            pose.lookX += (rhythm * 12 - pose.lookX) * thinking
+            pose.eyeHeight *= 1 - thinking * 0.2
+            pose.smileDepth += (1 - pose.smileDepth) * thinking
+            pose.rightWave += (-30 + rhythm * 8 - pose.rightWave) * thinking
+        }
+        if !isHeld, !isHovered, let celebrationStartedAt {
+            let age = time - celebrationStartedAt
+            if (0..<0.8).contains(age) {
+                let amount = keyframe(age, [(0, 0), (0.08, 1), (0.5, 1), (0.8, 0)])
+                pose.scaleX += (keyframe(age, [(0, 1), (0.14, 1.15), (0.3, 0.91), (0.5, 1.06), (0.8, 1)]) - pose.scaleX) * amount
+                pose.scaleY += (keyframe(age, [(0, 1), (0.14, 0.83), (0.3, 1.12), (0.5, 0.94), (0.8, 1)]) - pose.scaleY) * amount
+                pose.happyEyes = amount
+                pose.smileDepth += (17 - pose.smileDepth) * amount
+                pose.cheeks = amount * 0.3
+                pose.rightWave += (-55 - pose.rightWave) * amount
+            }
+        }
         if isHeld {
             pose.scaleX = 0.88
             pose.scaleY = 1.16
@@ -954,6 +1039,11 @@ struct MochiMascotPose {
     private static func isActive(_ startedAt: TimeInterval?, at time: TimeInterval, duration: TimeInterval) -> Bool {
         guard let startedAt else { return false }
         return (0..<duration).contains(time - startedAt)
+    }
+
+    private static func reactionRelease(_ startedAt: TimeInterval?, at time: TimeInterval, duration: TimeInterval) -> CGFloat {
+        guard let startedAt, isActive(startedAt, at: time, duration: duration) else { return 1 }
+        return keyframe(time - startedAt, [(0, 0), (duration - 0.22, 0), (duration, 1)])
     }
 
     private static func keyframe(_ time: TimeInterval, _ frames: [(TimeInterval, CGFloat)]) -> CGFloat {

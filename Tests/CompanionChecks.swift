@@ -24,6 +24,26 @@ struct CompanionChecks {
         precondition(CompanionPlacement.closestFrame(to: .zero, frames: []) == nil)
         print("PASS: screen-edge clamping, above/below card placement, and removed/negative-coordinate displays")
 
+        var activityMotion = MochiMascotActivityMotion()
+        activityMotion.set(.curious, at: 100)
+        let interrupted = activityMotion.values(at: 100.11)
+        precondition(interrupted.x > 0 && interrupted.x < 1)
+        activityMotion.set(.thinking, at: 100.11)
+        precondition(activityMotion.values(at: 100.11) == interrupted, "A new reaction snapped instead of continuing its current pose")
+        precondition(activityMotion.values(at: 101) == SIMD2(0, 1))
+        let thinking = MochiMascotPose.at(time: 101, isEngaged: true, activityMotion: activityMotion)
+        precondition(thinking.rightWave < 0 && thinking.smileDepth < 3)
+        let held = MochiMascotPose.at(time: 101, isHeld: true, activityMotion: activityMotion)
+        precondition(held.scaleY == 1.16 && held.mouthOpen == 1)
+        let sleeping = MochiMascotPose.at(time: 200, idleStartedAt: 0, activityMotion: activityMotion)
+        precondition(sleeping.sleepAmount == 1 && sleeping.closedEyes == 1)
+        let reduced = MochiMascotPose.at(time: 101, isEngaged: true, activityMotion: activityMotion, animate: false)
+        let reducedLater = MochiMascotPose.at(time: 102, isEngaged: true, activityMotion: activityMotion, animate: false)
+        precondition(reduced.scaleX == reducedLater.scaleX && reduced.tilt == 0 && reduced.rightWave == 0)
+        let happy = MochiMascotPose.at(time: 10.3, isMusicPlaying: true, isEngaged: true, celebrationStartedAt: 10)
+        precondition(happy.happyEyes == 1 && happy.smileDepth > 15 && happy.scaleX < 1)
+        print("PASS: interruptible character reactions, thought/playback poses, drag/sleep priority and reduced motion")
+
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
@@ -61,6 +81,17 @@ struct CompanionChecks {
                 view.cacheDisplay(in: view.bounds, to: image)
                 try image.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("\(name).png"))
             }
+            var curiousMotion = MochiMascotActivityMotion()
+            curiousMotion.set(.curious, at: 100)
+            let curious = MochiMascotPose.at(time: 101, isEngaged: true, activityMotion: curiousMotion)
+            for (name, pose) in [("curious", curious), ("thinking", thinking), ("happy", happy), ("reduced-motion", reduced), ("sleeping", sleeping)] {
+                let view = NSHostingView(rootView: MochiMascotArtwork(pose: pose))
+                view.frame = NSRect(x: 0, y: 0, width: 216, height: 200)
+                view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("mascot-\(name).png"))
+            }
             print("Rendered native companion previews to \(directory.path)")
         }
 
@@ -92,7 +123,7 @@ struct CompanionChecks {
                                      windowNumber: card.windowNumber, context: nil, characters: "\u{1b}",
                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
         card.sendEvent(escape)
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(150))
         precondition(!card.isVisible)
         companion.closeCard()
         precondition(mascot.contentView!.accessibilityPerformPress())
@@ -137,6 +168,13 @@ struct CompanionChecks {
             }
             fatalError("Discovery dropdown did not present its choices")
         }
+        func waitForSize(_ panel: NSPanel, _ size: CGSize) async throws {
+            let deadline = Date().addingTimeInterval(2)
+            while panel.frame.size != size {
+                precondition(Date() < deadline, "Native card did not settle at \(size); got \(panel.frame.size)")
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
         try await Task.sleep(for: .milliseconds(150))
         guard let toggle = button("Search songs and artists", in: card.contentView!) else {
             fatalError("Search toggle is not accessible")
@@ -144,6 +182,7 @@ struct CompanionChecks {
         precondition(press(toggle))
         try await Task.sleep(for: .milliseconds(100))
         precondition(companion.request.isSearchPresented, "Search button did not switch modes")
+        try await waitForSize(card, MochiCompanionCard.searchSize)
         precondition(card.frame.size == MochiCompanionCard.searchSize, "Expanded card size was \(card.frame.size)")
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
         SpotifyMockProtocol.server.configure([])
@@ -231,6 +270,7 @@ struct CompanionChecks {
         precondition(press(back))
         try await Task.sleep(for: .milliseconds(100))
         let listeningSize = companion.request.hasSelectedTracks ? MochiCompanionCard.searchSize : MochiCompanionCard.size
+        try await waitForSize(card, listeningSize)
         precondition(!companion.request.isSearchPresented && card.frame.size == listeningSize)
         precondition(companion.request.summary == "Soft piano for studying")
         print("PASS: Return searches, rendered results, native result-click playback, and listening mode restoration")
@@ -308,6 +348,7 @@ struct CompanionChecks {
             }
             try await Task.sleep(for: .milliseconds(100))
             precondition(companion.request.hasSelectedTracks == matching)
+            try await waitForSize(card, matching ? MochiCompanionCard.searchSize : MochiCompanionCard.size)
             precondition(card.frame.size == (matching ? MochiCompanionCard.searchSize : MochiCompanionCard.size))
             precondition(NSScreen.screens.contains { $0.visibleFrame.contains(card.frame) })
             precondition(card.firstResponder is NSTextInputClient, "Resizing lost composer focus")
@@ -336,6 +377,7 @@ struct CompanionChecks {
         guard let reset = button("New listening request", in: card.contentView!) else { fatalError("Missing request reset") }
         precondition(press(reset))
         try await Task.sleep(for: .milliseconds(100))
+        try await waitForSize(card, MochiCompanionCard.size)
         precondition(companion.request.selection == nil && companion.request.preferences.isEmpty && card.frame.size == MochiCompanionCard.size)
         print("PASS: native sample rows, keyboard submission, expanded placement, search/back retention, empty results and reset")
 
@@ -355,6 +397,7 @@ struct CompanionChecks {
             companion.request.submit("piano")
             while companion.request.isSending { try await Task.sleep(for: .milliseconds(10)) }
             try await Task.sleep(for: .milliseconds(100))
+            try await waitForSize(card, MochiCompanionCard.searchSize)
             precondition(card.frame.size == MochiCompanionCard.searchSize)
             precondition(findIdentifier("mochiDiscoverySource", in: card.contentView!) != nil)
             precondition(button("Like Development recording 1", in: card.contentView!) != nil)
@@ -386,6 +429,7 @@ struct CompanionChecks {
             while companion.request.isSending { try await Task.sleep(for: .milliseconds(10)) }
             try await Task.sleep(for: .milliseconds(100))
             precondition(companion.request.similarTo == seed.title && companion.request.draft == "jazz for tomorrow")
+            try await waitForSize(card, MochiCompanionCard.searchSize)
             precondition(card.frame.size == MochiCompanionCard.searchSize)
             precondition(findIdentifier("mochiSimilarSeed", in: card.contentView!) != nil)
             precondition(findIdentifier("mochiSelectedTrack-\(similarRows[0]["id"] as! String)", in: card.contentView!) != nil)
@@ -481,6 +525,7 @@ struct CompanionChecks {
         precondition(artistCard.frame.size == MochiCompanionCard.artistSize)
         guard let skip = button("Skip for now", in: artistCard.contentView!) else { fatalError("Setup cannot be skipped") }
         precondition(press(skip)); try await Task.sleep(for: .milliseconds(100))
+        try await waitForSize(artistCard, MochiCompanionCard.size)
         precondition(!artists.isPresented && artistCard.frame.size == MochiCompanionCard.size)
         let unavailableMode = try await modeChoice(.familiar, in: artistCard)
         _ = press(unavailableMode)
@@ -528,6 +573,7 @@ struct CompanionChecks {
             precondition(press(add)); try await Task.sleep(for: .milliseconds(100))
         }
         precondition(artists.names.count == 3)
+        try await waitForSize(artistCard, MochiCompanionCard.artistEditorSize(count: 3))
         precondition(artistCard.frame.size == MochiCompanionCard.artistEditorSize(count: 3))
         try await Task.sleep(for: .milliseconds(400)) // Capture the settled spring pose.
         if let previewDirectory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
@@ -543,6 +589,7 @@ struct CompanionChecks {
         precondition(press(done)); try await Task.sleep(for: .milliseconds(100))
         precondition(artists.names == ["Fixture Artist", "Third Fixture Artist"] && !artists.isPresented)
         precondition(MochiArtistPreferencesModel(defaults: artistDefaults).names == artists.names)
+        try await waitForSize(artistCard, MochiCompanionCard.size)
         precondition(artistCard.frame.size == MochiCompanionCard.size)
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(artistCard.frame) })
 
@@ -609,6 +656,31 @@ struct CompanionChecks {
         artistCompanion.stop()
         print("PASS: native artist onboarding, autocomplete, Return/visible Add/result/Remove/Done, card resizing and saved choices")
         print("PASS: native familiarity choices, saved mode, pending-request lock, applied-mode label and original-mode refinement")
+
+        companion.closeCard()
+        companion.toggleCard()
+        try await Task.sleep(for: .milliseconds(250))
+        precondition(companion.isCardPresented && card.isVisible && card.alphaValue == 1 && !card.ignoresMouseEvents,
+                     "A stale close completion hid the reopened panel")
+        if !liveBackend {
+            companion.request.reset()
+            try await waitForSize(card, MochiCompanionCard.size)
+            companion.request.draft = "Keep this request"
+            let artwork = mascot.contentView!.subviews.first as! NSHostingView<MochiMascotView>
+            precondition(artwork.rootView.activityMotion.activity == .curious)
+            SpotifyMockProtocol.server.configure([SpotifyReply(data: Data(#"{"received_prompt":"Keep this request"}"#.utf8), delay: 0.3)])
+            companion.request.submit()
+            precondition(artwork.rootView.activityMotion.activity == .thinking)
+            try await Task.sleep(for: .milliseconds(40))
+            guard let cancel = button("Cancel", in: card.contentView!) else { fatalError("Pending request has no Cancel action") }
+            precondition(press(cancel))
+            precondition(!companion.request.isSending && companion.request.draft == "Keep this request")
+            precondition(artwork.rootView.activityMotion.activity == .curious)
+            try await Task.sleep(for: .milliseconds(350))
+            precondition(companion.request.preferences.isEmpty && companion.request.draft == "Keep this request",
+                         "A cancelled request replaced the draft or saved a late response")
+        }
+        print("PASS: rapid close/reopen, native typing/search reactions, visible cancellation and late-response rejection")
 
         companion.moveMascot(to: NSPoint(x: 100_000, y: 100_000))
         precondition(NSScreen.screens.contains { $0.visibleFrame.contains(mascot.frame) })
