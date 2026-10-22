@@ -602,6 +602,87 @@ final class MochiRequestModel: ObservableObject {
 
 // MARK: - Companion card
 
+/// A read-only view of songs accepted into Mochi's current Spotify session.
+/// This does not claim to import the user's entire Spotify queue.
+struct MochiUpNextView: View {
+    @ObservedObject var request: MochiRequestModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if request.isSessionActive {
+                if let current = request.sessionQueue.current {
+                    Text(request.sessionQueue.isStale ? "Last known song" : (request.sessionQueue.isPlaying ? "Now playing" : "Paused"))
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Image(systemName: request.sessionQueue.isPlaying ? "waveform" : "pause.fill")
+                            .font(.system(size: 12)).frame(width: 16).accessibilityHidden(true)
+                        trackLabel(current)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("mochiQueueCurrent-\(current.id)")
+                    Divider().opacity(0.5)
+                    HStack {
+                        Text("Up next")
+                        Spacer()
+                        Text("\(request.sessionQueue.upcoming.count)")
+                    }.font(.system(size: 10)).foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(request.sessionQueue.upcoming.enumerated()), id: \.element.id) { index, song in
+                                HStack(spacing: 8) {
+                                    Text("\(index + 1)").font(.system(size: 10).monospacedDigit())
+                                        .foregroundStyle(.tertiary).frame(width: 16)
+                                    trackLabel(song)
+                                }.padding(.vertical, 5)
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityIdentifier("mochiQueueSong-\(song.id)")
+                            }
+                            if request.sessionQueue.upcoming.isEmpty {
+                                Text("No songs queued yet.").font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }.frame(maxHeight: .infinity)
+                } else {
+                    Spacer(minLength: 0)
+                    Text("Checking Spotify…").font(.system(size: 12, weight: .medium))
+                    Text("The queue appears when playback is confirmed.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 6) {
+                    Text(status).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("mochiQueueStatus")
+                    Button("Stop") { request.stopSession() }
+                        .buttonStyle(.plain).accessibilityLabel("Stop continuous listening")
+                        .help("Stop refills. Songs already queued in Spotify remain there.")
+                }.font(.system(size: 10)).foregroundStyle(.secondary)
+            } else {
+                Text("Continuous listening is off.").font(.system(size: 12, weight: .medium))
+                Text("Spotify can still play songs already queued. Send a new listening request to continue.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("mochiUpNext")
+    }
+
+    private var status: String {
+        if request.sessionQueue.isStale { return "Playback is out of date. Updating…" }
+        if request.sessionQueue.current == nil { return "Waiting for Spotify" }
+        if !request.sessionQueue.isPlaying { return "Paused · \(request.queuedSongCount) queued" }
+        return request.isRefilling ? "Finding more music…" : "Continuous listening"
+    }
+
+    private func trackLabel(_ song: MochiQueuedTrack) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(song.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            Text(song.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+        }.frame(maxWidth: .infinity, alignment: .leading).help("\(song.title)\n\(song.artist)")
+    }
+}
+
 struct MochiCompanionCard: View {
     static let size = CGSize(width: 300, height: 150)
     static let searchSize = CGSize(width: 300, height: 340)
@@ -618,6 +699,7 @@ struct MochiCompanionCard: View {
     @State private var modePickerPresented = false
     @State private var optionsPresented = false
     @State private var selectedTrack: MochiSelectedTrack?
+    @State private var showsQueue = false
 
     init(request: MochiRequestModel, search: SpotifySearchModel, onClose: @escaping () -> Void) {
         self.request = request; self.search = search; self.artists = request.artists; self.onClose = onClose
@@ -649,7 +731,20 @@ struct MochiCompanionCard: View {
             } else if request.isSearchPresented {
                 searchContent
             } else if request.hasSelectedTracks {
-                selectionContent
+                VStack(alignment: .leading, spacing: 8) {
+                    if request.isSessionActive {
+                        HStack(spacing: 14) {
+                            resultTab("Picks", queue: false)
+                            resultTab("Up Next", queue: true)
+                            Spacer()
+                        }
+                    }
+                    if showsQueue && request.isSessionActive {
+                        MochiUpNextView(request: request)
+                    } else {
+                        selectionContent
+                    }
+                }.frame(maxHeight: .infinity)
             } else if request.preferences.isEmpty && !request.isSending && request.reply == "What do you feel like\nlistening to?" {
                 HStack(spacing: 6) {
                     choice("Focus")
@@ -731,6 +826,8 @@ struct MochiCompanionCard: View {
             else { onClose() }
         }
         .onChange(of: request.isSending) { _, busy in if busy { selectedTrack = nil; optionsPresented = false } }
+        .onChange(of: request.isSessionActive) { _, active in showsQueue = active }
+        .onAppear { showsQueue = request.isSessionActive }
         .task(id: "\(request.isSearchPresented)-\(artists.isPresented)") {
             composerFocused = false
             await Task.yield()
@@ -739,6 +836,18 @@ struct MochiCompanionCard: View {
     }
 
     private var composerText: Binding<String> { request.isSearchPresented ? $search.query : $request.draft }
+
+    private func resultTab(_ title: String, queue: Bool) -> some View {
+        Button {
+            selectedTrack = nil
+            showsQueue = queue
+        } label: {
+            Text(title).font(.system(size: 11, weight: showsQueue == queue ? .semibold : .regular))
+                .foregroundStyle(showsQueue == queue ? .primary : .secondary)
+                .padding(.vertical, 5).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(queue ? "Show Up Next" : "Show recommendations")
+            .accessibilityValue(showsQueue == queue ? "Selected" : "Not selected")
+    }
 
     private var optionsButton: some View {
         Button { modePickerPresented = false; optionsPresented.toggle() } label: {

@@ -88,10 +88,21 @@ struct ContentView: View {
 
 private struct ListeningSessionStatus: View {
     @ObservedObject var request: MochiRequestModel
+    @State private var showsQueue = false
     var body: some View {
         if request.isSessionActive {
             HStack {
-                Text(request.isRefilling ? "Finding more music…" : "Continuous · \(request.queuedSongCount) queued")
+                Button { showsQueue.toggle() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "list.bullet")
+                        Text(request.isRefilling ? "Finding more music…" : "Up Next · \(request.queuedSongCount) queued")
+                    }.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityLabel("Show Up Next")
+                .help("View Mochi's current song and confirmed upcoming songs")
+                .popover(isPresented: $showsQueue, arrowEdge: .trailing) {
+                    MochiUpNextView(request: request).padding(12).frame(width: 292, height: 300)
+                }
                 Spacer()
                 Button { request.stopSession() } label: { Image(systemName: "stop.circle").frame(width: 24, height: 22) }
                     .buttonStyle(.plain).help("Stop continuous listening").accessibilityLabel("Stop continuous listening")
