@@ -5,6 +5,14 @@
 > **Primary platform:** macOS  
 > **Primary objective:** Build a technically credible software engineering project while developing the author's independent engineering ability.
 
+## Up Next — October 21, 2026
+
+The companion results card retains its 300 × 340-point footprint. An active session defaults to **Up Next**, with a small **Picks / Up Next** switch. Picks keeps the latest recommendation batch and its existing play/feedback/refinement actions. Up Next shows the confirmed current recording, ordered upcoming recordings across discovery batches, queued count and playing/paused/refilling/syncing/stale status. It has an explicit Stop action. The 300-point menu player opens the same view from its Up Next status row in a 292 × 300-point popover.
+
+A native, read-only queue snapshot projects only acknowledged session entries after the most recently observed current URI. Spotify title/artist/version text stays native. Pending searches and unacknowledged queue writes are excluded. Playback snapshots update the list immediately, including during a refill; no extra provider/API requests or backend persistence are introduced for display. A foreign URI/device clears the visible queue while ownership is checked. Failed playback reads mark the last snapshot as out of date. Stop, reset and disconnect clear the projection; accepted music in Spotify is left alone. This view covers Mochi's managed session tracks.
+
+Model checks cover ordered cross-batch projections, pause/advance, foreign playback, cancellation and delayed acknowledgements. Native controls and light/dark fixture rendering verify the tab switch, menu popover, refill status, compact layout and Stop behavior. Real-account listening remains a separate verification step.
+
 ## Continuous listening and player refinement — October 16, 2026
 
 This refinement takes precedence over the earlier five-song playback description.

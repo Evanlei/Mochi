@@ -18,6 +18,7 @@ The native companion, live discovery integration, independent ranking, retryable
 - Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
 - **More like this** in each live song's `…` menu, keeping the original request and excluding the previous batch.
 - Continuous listening for API-connected users: queue confirmed songs, refill from the same session, avoid recent suggestions, and stop refills from either panel.
+- **Up Next** shows the current song and confirmed upcoming songs across batches. Switch back to **Picks** for recommendation actions, or open Up Next from the menu player.
 - Click an unresolved recommendation to retry Spotify matching; recordings still need a confident artist/title/version match.
 - Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
 - Loading, cancellation, empty-result, unavailable-track, and connection/error states for search.
@@ -36,7 +37,7 @@ The native companion, live discovery integration, independent ranking, retryable
 
 **Mood requests now discover live Last.fm candidates, rank independent tags/descriptions, and return small batches of canonical recordings. API-connected users start a confirmed song and queue the remaining matches, then automatically discover and append more as the queue runs low. The session preserves the original request and listening mode. Pause is respected; switching to unrelated playback or another device stops refills. Users without API login can hand off to public Spotify search and play a copied track link locally. Likes/dislikes persist in SQLite and affect later requests. Unknown BPM, vocals, or energy never satisfy strict requirements.** ReccoBeats BPM enrichment is experimental and off by default; reliable vocal/energy measurements are not yet available. Fictional music remains only in explicitly selected development mode. Live Spotify login and original controls were previously confirmed; new recommendation playback is covered by mock integration tests pending a live account check.
 
-**To try it:** run the backend and Mochi, connect the optional Spotify API, start Spotify, and send a listening request. The footer shows continuous listening and the queued count. Stop disables refills; songs already accepted into Spotify’s queue remain there. Desktop controls can start locally, but automatic matching and queue appends still require the API connection.
+**To try it:** run the backend and Mochi, connect the optional Spotify API, start Spotify, and send a listening request. The companion opens Up Next for an active session; Picks retains your recommendation actions. The menu player’s Up Next row opens the same queue in a compact popover. Stop disables refills; songs already accepted into Spotify’s queue remain there. Desktop controls can start locally, but automatic matching and queue appends still require the API connection.
 
 See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md). The first release is a private hobby beta. Desktop controls avoid the Web API allowlist for playback; automatic API matching remains limited. Public distribution still requires resolving provider permissions. See [local playback setup and limits](docs/local-spotify-playback.md).
 
