@@ -51,11 +51,14 @@ struct SessionChecks {
                 try await Task.sleep(for: .milliseconds(10))
             }
             precondition(model.isSessionActive && model.queuedSongCount == 0)
+            precondition(model.sessionQueue.current?.uri == uri(1) && model.sessionQueue.upcoming.isEmpty,
+                         "Pending songs must not appear accepted before queue acknowledgement")
             replies = []
             for _ in 2...5 { replies += [try state(1), SpotifyReply(status: 204)] }
             SpotifyMockProtocol.server.configure(replies)
             await model.maintainSession()
             precondition(model.queuedSongCount == 4)
+            precondition(model.sessionQueue.upcoming.map(\.uri) == (2...5).map(uri))
         }
         try await start()
         // Five initial songs advance to the third; refill adds five more without /play.
@@ -66,6 +69,9 @@ struct SessionChecks {
         await playback.refresh(using: auth)
         await model.maintainSession()
         precondition(model.isSessionActive && model.queuedSongCount == 7)
+        precondition(model.sessionQueue.current?.uri == uri(3))
+        precondition(model.sessionQueue.upcoming.map(\.uri) == (4...10).map(uri),
+                     "Up Next must retain earlier queued songs when a new discovery batch arrives")
         let requests = SpotifyMockProtocol.server.requests()
         precondition(requests.filter { $0.url?.path == "/v1/me/player/queue" }.count == 5)
         precondition(!requests.contains { $0.url?.path == "/v1/me/player/play" })
@@ -83,9 +89,12 @@ struct SessionChecks {
         SpotifyMockProtocol.server.configure([try state(8, playing: false)])
         await playback.refresh(using: auth); await model.maintainSession()
         precondition(model.isSessionActive && SpotifyMockProtocol.server.requests().count == 1)
+        precondition(!model.sessionQueue.isPlaying && model.sessionQueue.current?.uri == uri(8))
+        precondition(model.sessionQueue.upcoming.map(\.uri) == [uri(9), uri(10)])
         SpotifyMockProtocol.server.configure([try state(8), try response([])])
         await playback.refresh(using: auth); await model.maintainSession()
         precondition(!model.isSessionActive && model.resultNotice != nil)
+        precondition(model.sessionQueue.current == nil && model.sessionQueue.upcoming.isEmpty)
         precondition(SpotifyMockProtocol.server.requests().count == 2)
         print("PASS: pause never advances or refills; exhausted discovery ends gracefully without touching playback")
 
@@ -93,7 +102,9 @@ struct SessionChecks {
         SpotifyMockProtocol.server.configure([try state(1)])
         await playback.refresh(using: auth); await model.maintainSession() // Establish ownership.
         SpotifyMockProtocol.server.configure([try state(99)])
-        await playback.refresh(using: auth); await model.maintainSession()
+        await playback.refresh(using: auth)
+        precondition(model.sessionQueue.current == nil && model.sessionQueue.upcoming.isEmpty)
+        await model.maintainSession()
         precondition(!model.isSessionActive && SpotifyMockProtocol.server.requests().count == 1)
         precondition(model.resultNotice?.contains("playback changed") == true)
         print("PASS: unrelated Spotify playback stops refills without taking over")
@@ -106,6 +117,7 @@ struct SessionChecks {
         model.stopSession()
         await pending.value
         precondition(!model.isSessionActive && !model.isRefilling)
+        precondition(model.sessionQueue.current == nil && model.sessionQueue.upcoming.isEmpty)
         precondition(SpotifyMockProtocol.server.requests().count == 2)
         print("PASS: stopping a session cancels in-flight discovery before any queue write")
 
@@ -168,5 +180,20 @@ struct SessionChecks {
         precondition(!desktopRequest.isSessionActive)
         precondition(SpotifyMockProtocol.server.requests().filter { $0.url?.path == "/v1/me/player/queue" }.count == 1)
         print("PASS: desktop-assisted queues bind to the first confirmed API device and reject later device changes")
+
+        try await start()
+        SpotifyMockProtocol.server.configure([try state(3), try response([6]), try search(6), try state(3),
+                                              SpotifyReply(status: 204, delay: 0.3)])
+        await playback.refresh(using: auth)
+        let delayedAppend = Task { await model.maintainSession() }
+        let appendDeadline = Date().addingTimeInterval(3)
+        while !SpotifyMockProtocol.server.requests().contains(where: { $0.url?.path == "/v1/me/player/queue" }) {
+            precondition(Date() < appendDeadline)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(model.isRefilling && model.sessionQueue.upcoming.map(\.uri) == [uri(4), uri(5)])
+        await delayedAppend.value
+        precondition(model.sessionQueue.upcoming.map(\.uri) == [uri(4), uri(5), uri(6)])
+        print("PASS: Up Next follows playback and pause, spans batches, clears on stop, and waits for queue acknowledgements")
     }
 }

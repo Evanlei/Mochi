@@ -4,6 +4,20 @@ import SwiftUI
 
 // MARK: - Listening request
 
+struct MochiQueuedTrack: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let artist: String
+    let uri: String
+}
+
+struct MochiQueueSnapshot: Equatable {
+    var current: MochiQueuedTrack?
+    var upcoming: [MochiQueuedTrack] = []
+    var isPlaying = false
+    var isStale = false
+}
+
 @MainActor
 final class MochiRequestModel: ObservableObject {
     let artists: MochiArtistPreferencesModel
@@ -31,6 +45,7 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var isSessionActive = false
     @Published private(set) var isRefilling = false
     @Published private(set) var queuedSongCount = 0
+    @Published private(set) var sessionQueue = MochiQueueSnapshot()
 
     private struct SessionSong {
         let track: MochiSelectedTrack
@@ -87,6 +102,8 @@ final class MochiRequestModel: ObservableObject {
             guard let self else { return }
             if self.usesDesktopPlayer != desktop { self.reset() }
             self.usesDesktopPlayer = desktop
+        }, playback.$state.combineLatest(playback.$isStale).sink { [weak self] state, stale in
+            self?.publishQueue(state: state, stale: stale)
         }]
     }
 
@@ -360,6 +377,7 @@ final class MochiRequestModel: ObservableObject {
         sessionGraceUntil = Date().addingTimeInterval(20)
         queuedSongCount = enqueuedCount - 1
         isSessionActive = true
+        refreshQueueSnapshot()
     }
 
     /// Stopping refills leaves the current song and Spotify's accepted queue alone.
@@ -369,6 +387,32 @@ final class MochiRequestModel: ObservableObject {
         isSessionActive = false; isRefilling = false; queuedSongCount = 0
         sessionSongs = []; enqueuedCount = 0
         seenSongIDs = []; seenSpotifyURIs = []; sessionDeviceID = nil
+        sessionQueue = MochiQueueSnapshot()
+    }
+
+    /// Only accepted session URIs belong in Up Next. Search results and pending
+    /// queue writes are suggestions until Spotify acknowledges them.
+    private func publishQueue(state: SpotifyPlaybackState?, stale: Bool) {
+        guard isSessionActive else { return }
+        let accepted = Array(sessionSongs.prefix(enqueuedCount))
+        guard let uri = state?.item?.uri,
+              let cursor = accepted.firstIndex(where: { $0.match.uri == uri }),
+              usesDesktopPlayer || sessionDeviceID == nil || state?.device?.id == sessionDeviceID else {
+            queuedSongCount = 0
+            sessionQueue = MochiQueueSnapshot(isStale: stale)
+            return
+        }
+        func row(_ song: SessionSong) -> MochiQueuedTrack {
+            MochiQueuedTrack(id: song.track.id, title: song.match.name, artist: song.match.artistNames, uri: song.match.uri)
+        }
+        let upcoming = accepted.dropFirst(cursor + 1).map(row)
+        queuedSongCount = upcoming.count
+        sessionQueue = MochiQueueSnapshot(current: row(accepted[cursor]), upcoming: upcoming,
+                                         isPlaying: state?.isPlaying == true, isStale: stale)
+    }
+
+    private func refreshQueueSnapshot() {
+        publishQueue(state: playback?.state, stale: playback?.isStale ?? false)
     }
 
     private func endSession(_ message: String) {
@@ -391,7 +435,7 @@ final class MochiRequestModel: ObservableObject {
             return
         }
         sessionGraceUntil = .distantPast
-        queuedSongCount = max(0, enqueuedCount - cursor - 1)
+        refreshQueueSnapshot()
         guard state.isPlaying, queuedSongCount <= 2 else { return }
         // Keep just a few previous entries plus upcoming songs in native memory.
         if cursor > 5 { sessionSongs.removeFirst(cursor - 5); enqueuedCount -= cursor - 5 }
@@ -423,7 +467,7 @@ final class MochiRequestModel: ObservableObject {
                 guard let device else { throw SessionError.stopped(playback.errorMessage ?? "Spotify is busy. Send a new request to continue.") }
                 sessionDeviceID = device
                 enqueuedCount += 1
-                queuedSongCount += 1
+                refreshQueueSnapshot()
             }
         }
         do {
