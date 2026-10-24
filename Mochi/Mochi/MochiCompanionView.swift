@@ -740,6 +740,7 @@ struct MochiUpNextView: View {
             }.buttonStyle(.plain).accessibilityLabel("Options for \(track.title)")
                 .popover(isPresented: Binding(get: { selectedTrack?.id == track.id }, set: { if !$0 { selectedTrack = nil } })) {
                     MochiTrackActions(request: request, track: track) { selectedTrack = nil }
+                        .onExitCommand { selectedTrack = nil }
                 }
         }
     }

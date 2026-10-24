@@ -233,13 +233,21 @@ struct MochiSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Your listening data") {
-                Text("Preferences and recent requests stay on this Mac. Discovery requests go to Last.fm; song matching and controls go to Spotify.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Clear recent list") { companion.request.clearRecentSessions() }
-                Button("Forget taste memory") { companion.request.clearTaste() }
-                    .disabled(companion.request.feedbackBusy || companion.request.isSending || companion.request.isStarting)
+                MochiTasteSettings(request: companion.request)
             }
         }.formStyle(.grouped).frame(width: 460, height: 600)
             .task { await engine.ensureRunning() }
+    }
+}
+
+private struct MochiTasteSettings: View {
+    @ObservedObject var request: MochiRequestModel
+    var body: some View {
+        Text("Preferences and recent requests stay on this Mac. Discovery requests go to Last.fm; song matching and controls go to Spotify.")
+            .font(.caption).foregroundStyle(.secondary)
+        Button("Clear recent list") { request.clearRecentSessions() }
+        Button(request.feedbackBusy ? "Updating taste…" : "Forget taste memory") { request.clearTaste() }
+            .disabled(request.feedbackBusy || request.isSending || request.isStarting)
+        if let error = request.feedbackError { Text(error).font(.caption).foregroundStyle(.secondary) }
     }
 }

@@ -150,6 +150,17 @@ struct UpNextChecks {
         precondition(find("mochiQueueSong-\(id(6))", in: card.contentView!) != nil)
         print("PASS: visible queue follows pause/current-song changes and spans old/new batches while refilling")
 
+        press("Options for Queue song 3", in: card.contentView!)
+        try await Task.sleep(for: .milliseconds(150))
+        guard let actions = NSApp.windows.first(where: { window in
+            window.isVisible && window.contentView.map { find("Like Queue song 3", key: "accessibilityLabel", in: $0) != nil } == true
+        }) else { fatalError("Current-song feedback actions missing") }
+        SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
+        press("Like Queue song 3", in: actions.contentView!)
+        while request.feedbackBusy { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(request.isLiked(request.canonicalTrack(id: id(3))!))
+        print("PASS: native Up Next feedback works on a current song from an earlier batch")
+
         SpotifyMockProtocol.server.configure([SpotifyReply(status: 500)])
         await playback.refresh(using: auth)
         precondition(request.sessionQueue.isStale)

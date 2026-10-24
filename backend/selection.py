@@ -138,7 +138,7 @@ class SongSelector:
             reasons = []
             if method == "semantic": reasons.append("Its musical tags match the mood of your request.")
             elif method == "lexical" and similarity > 0: reasons.append("Shares musical tags with your request.")
-            elif allow_unmatched: reasons.append("A popular recording from your artist discovery pools.")
+            elif allow_unmatched: reasons.append("Discovered through your artist and song preferences.")
             if familiar: reasons.append("From one of your saved favorite artists.")
             elif mode == DiscoveryMode.DISCOVER and favorites: reasons.append("An artist beyond your saved favorites.")
             liked = taste["tracks"].get(track.id, 0) > 0
