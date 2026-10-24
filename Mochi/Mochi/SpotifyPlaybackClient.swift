@@ -153,11 +153,24 @@ struct SpotifyPlaybackItem: Decodable, Sendable {
     let artists: [SpotifyPlaybackArtist]?
     let show: SpotifyPlaybackShow?
     var uri: String? = nil
+    var album: SpotifyPlaybackAlbum? = nil
+    var desktopArtwork: String? = nil
+
+    var artworkURL: URL? {
+        guard let raw = desktopArtwork ?? album?.images?.last?.url,
+              let url = URL(string: raw), url.scheme == "https", url.user == nil, url.password == nil else { return nil }
+        return url
+    }
 
     var subtitle: String {
         if let artists, !artists.isEmpty { return artists.map(\.name).joined(separator: ", ") }
         return show?.name ?? (type == "episode" ? "Podcast episode" : "Spotify")
     }
+}
+
+struct SpotifyPlaybackAlbum: Decodable, Sendable {
+    let images: [Image]?
+    struct Image: Decodable, Sendable { let url: String }
 }
 
 struct SpotifyPlaybackArtist: Decodable, Sendable {

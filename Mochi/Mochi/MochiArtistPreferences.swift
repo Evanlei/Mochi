@@ -141,7 +141,7 @@ struct MochiArtistPreferencesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("One artist is enough. Add up to three.")
-                .font(.system(size: 11)).foregroundStyle(Color.mochiMuted)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(artists.names, id: \.self) { name in
                     HStack(spacing: 6) {
@@ -150,7 +150,7 @@ struct MochiArtistPreferencesView: View {
                             .buttonStyle(.plain).accessibilityLabel("Remove \(name)")
                     }
                     .font(.system(size: 11)).padding(.horizontal, 9).padding(.vertical, 5)
-                    .background(Color(hex: 0xDCE8D9).opacity(0.65), in: Capsule())
+                    .background(Color.primary.opacity(0.06), in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
@@ -169,9 +169,9 @@ struct MochiArtistPreferencesView: View {
                         .disabled(!artists.canSubmitQuery || artists.isAddingFromQuery)
                         .accessibilityLabel("Add typed artist")
                 }
-                .padding(10).background(Color.white.opacity(0.3), in: RoundedRectangle(cornerRadius: 11))
+                .padding(10).background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
                 Text("Press Return or choose a result to add.")
-                    .font(.system(size: 10)).foregroundStyle(Color.mochiMuted)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
                 if artists.isSearching { ProgressView().controlSize(.mini).accessibilityLabel("Finding artists") }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -186,11 +186,11 @@ struct MochiArtistPreferencesView: View {
                 }
             }
             if let message = artists.message {
-                Text(message).font(.system(size: 10)).foregroundStyle(Color.mochiMuted).lineLimit(3).help(message)
+                Text(message).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3).help(message)
             }
             Spacer(minLength: 0)
             HStack {
-                Text("You can change these anytime.").font(.system(size: 10)).foregroundStyle(Color.mochiMuted)
+                Text("You can change these anytime.").font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button(artists.names.isEmpty ? "Skip for now" : "Done") { artists.finish() }
                     .font(.system(size: 11, weight: .medium)).buttonStyle(.plain)

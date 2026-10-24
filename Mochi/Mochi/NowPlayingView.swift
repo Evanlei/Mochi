@@ -9,10 +9,13 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                Image(systemName: playback.state?.isPlaying == true ? "waveform" : "music.note")
-                    .font(.system(size: 22, weight: .medium))
+                AsyncImage(url: playback.state?.item?.artworkURL) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() }
+                    else { Image(systemName: playback.state?.isPlaying == true ? "waveform" : "music.note").font(.system(size: 22, weight: .medium)) }
+                }
                     .frame(width: 48, height: 48)
                     .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(playback.state?.item?.name ?? "Nothing playing")

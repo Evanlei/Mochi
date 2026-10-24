@@ -33,8 +33,8 @@ struct LocalPlaybackChecks {
         precondition(play.paramDescriptor(forKeyword: keyDirectObject)?.stringValue == uri)
         let readEvent = LocalSpotifyClient.snapshotEvent()
         precondition(readEvent.eventClass == LocalSpotifyClient.code("core") && readEvent.eventID == LocalSpotifyClient.code("getd"))
-        precondition(readEvent.paramDescriptor(forKeyword: keyDirectObject)?.numberOfItems == 4)
-        print("PASS: commands target Spotify alone and URI travels as data; snapshot uses four fixed properties")
+        precondition(readEvent.paramDescriptor(forKeyword: keyDirectObject)?.numberOfItems == 5)
+        print("PASS: commands target Spotify alone and URI travels as data; snapshot uses five fixed properties")
 
         func snapshot(_ status: String, name: String = "Test song", artist: String = "Test artist") -> NSAppleEventDescriptor {
             let result = NSAppleEventDescriptor.list()
@@ -48,8 +48,10 @@ struct LocalPlaybackChecks {
         precondition(state.device?.name == "Spotify desktop" && state.permits(.pause) && state.permits(.next))
         let identified = snapshot("kPSP")
         identified.insert(NSAppleEventDescriptor(string: uri), at: 4)
+        identified.insert(NSAppleEventDescriptor(string: "https://i.scdn.co/image/fixture"), at: 5)
         let identifiedState = try LocalSpotifyClient.decodeSnapshot(identified)
         precondition(identifiedState?.item?.uri == uri)
+        precondition(identifiedState?.item?.artworkURL?.scheme == "https")
         let paused = try LocalSpotifyClient.decodeSnapshot(snapshot("kPSp"))!
         precondition(!paused.isPlaying && paused.permits(.play))
         let stopped = try LocalSpotifyClient.decodeSnapshot(snapshot("kPSS"))
