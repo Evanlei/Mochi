@@ -115,6 +115,37 @@ struct PlaybackChecks {
         precondition(SpotifyMockProtocol.server.requests().count == 2)
         print("PASS: playback model refreshes after controls and serializes button actions")
 
+        let uri = "spotify:track:" + String(repeating: "1", count: 22)
+        SpotifyMockProtocol.server.configure([SpotifyReply(data: trackData, delay: 0.2), try fixture(),
+                                             SpotifyReply(status: 204), try fixture("Started song")])
+        let backgroundRead = Task { await model.refresh(using: auth) }
+        while !model.isBusy { await Task.yield() }
+        let startedAfterRead = await model.startTrack(uri: uri, using: auth)
+        await backgroundRead.value
+        precondition(startedAfterRead && model.state?.item?.name == "Started song")
+        precondition(SpotifyMockProtocol.server.requests().map(\.httpMethod) == ["GET", "GET", "PUT", "GET"])
+
+        var queuedState = try JSONSerialization.jsonObject(with: trackData) as! [String: Any]
+        var queuedItem = queuedState["item"] as! [String: Any]
+        queuedItem["uri"] = uri; queuedState["item"] = queuedItem
+        let queueReply = SpotifyReply(data: try JSONSerialization.data(withJSONObject: queuedState))
+        var delayedQueueReply = queueReply; delayedQueueReply.delay = 0.2
+        SpotifyMockProtocol.server.configure([delayedQueueReply, queueReply, SpotifyReply(status: 204)])
+        let queueRead = Task { await model.refresh(using: auth) }
+        while !model.isBusy { await Task.yield() }
+        let queuedDevice = await model.enqueueTrack(uri: uri, allowedCurrentURIs: [uri], deviceID: "device & test", using: auth)
+        await queueRead.value
+        precondition(queuedDevice == "device & test")
+        precondition(SpotifyMockProtocol.server.requests().map(\.httpMethod) == ["GET", "GET", "POST"])
+
+        SpotifyMockProtocol.server.configure([SpotifyReply(status: 204, delay: 0.15), try fixture(playing: false)])
+        let actualControl = Task { await model.perform(.pause, using: auth) }
+        while !model.isBusy { await Task.yield() }
+        let overlappingStart = await model.startTrack(uri: uri, using: auth)
+        await actualControl.value
+        precondition(!overlappingStart && SpotifyMockProtocol.server.requests().count == 2)
+        print("PASS: starts/queue appends wait for passive reads, recheck ownership and never overlap actual controls")
+
         let refreshData = try JSONSerialization.data(withJSONObject: ["access_token": "refreshed-access", "token_type": "Bearer", "expires_in": 3600])
         SpotifyMockProtocol.server.configure([SpotifyReply(status: 401), SpotifyReply(data: refreshData), try fixture()])
         await model.refresh(using: auth)
@@ -141,10 +172,14 @@ struct PlaybackChecks {
         SpotifyMockProtocol.server.configure([SpotifyReply(data: trackData, delay: 0.15)])
         let lateRefresh = Task { await model.refresh(using: auth) }
         try await Task.sleep(for: .milliseconds(20))
+        let waitingStart = Task { await model.startTrack(uri: uri, using: auth) }
+        try await Task.sleep(for: .milliseconds(20))
         auth.disconnect()
         model.reset()
+        let disconnectedStart = await waitingStart.value
         await lateRefresh.value
-        precondition(model.state == nil && !model.isBusy && model.errorMessage == nil)
+        precondition(!disconnectedStart && model.state == nil && !model.isBusy && model.errorMessage == nil)
+        precondition(SpotifyMockProtocol.server.requests().allSatisfy { $0.httpMethod == "GET" })
         print("PASS: one-time 401 refresh, cooldown, no-device state and stale response after disconnect")
     }
 }

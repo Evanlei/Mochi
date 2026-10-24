@@ -15,6 +15,7 @@ final class SpotifyPlaybackModel: ObservableObject {
     private let defaults: UserDefaults?
     private var requestVersion = 0
     private var retryAfter: Date?
+    private var isRefreshing = false
 
     init(client: SpotifyPlaybackClient? = nil, localClient: (any LocalSpotifyControlling)? = nil,
          defaults: UserDefaults? = nil) {
@@ -43,6 +44,7 @@ final class SpotifyPlaybackModel: ObservableObject {
         requestVersion += 1
         state = nil
         isBusy = false
+        isRefreshing = false
         isStale = false
         errorMessage = nil
         lastUpdatedAt = nil
@@ -58,8 +60,9 @@ final class SpotifyPlaybackModel: ObservableObject {
         if usesDesktopPlayer {
             guard !isBusy else { return }
             let version = requestVersion
+            isRefreshing = true
             isBusy = true; errorMessage = nil
-            defer { if version == requestVersion { isBusy = false } }
+            defer { if version == requestVersion { isBusy = false; isRefreshing = false } }
             do {
                 let snapshot = try await localClient.fetchState()
                 try Task.checkCancellation()
@@ -73,9 +76,10 @@ final class SpotifyPlaybackModel: ObservableObject {
         }
         guard auth.isConnected, !isBusy, readyToRequest() else { return }
         let version = requestVersion
+        isRefreshing = true
         isBusy = true
         errorMessage = nil
-        defer { if version == requestVersion { isBusy = false } }
+        defer { if version == requestVersion { isBusy = false; isRefreshing = false } }
         do {
             let state = try await authorized(using: auth) { token in
                 try await self.client.fetchState(accessToken: token)
@@ -109,6 +113,7 @@ final class SpotifyPlaybackModel: ObservableObject {
     }
 
     func startTracks(uris: [String], using auth: SpotifyAuthModel) async -> Bool {
+        guard await awaitPendingRefresh(using: auth) else { return false }
         if usesDesktopPlayer {
             guard uris.count == 1 else { errorMessage = LocalSpotifyError.queueUnsupported.localizedDescription; return false }
             guard let uri = uris.first, LocalSpotifyClient.trackURI(from: uri) == uri else {
@@ -132,6 +137,7 @@ final class SpotifyPlaybackModel: ObservableObject {
     /// Append without replacing playback. Recheck ownership/device before every
     /// write. An uncertain acknowledgement is never retried (it could duplicate).
     func enqueueTrack(uri: String, allowedCurrentURIs: Set<String>, deviceID: String?, using auth: SpotifyAuthModel) async -> String? {
+        guard await awaitPendingRefresh(using: auth) else { return nil }
         guard auth.isConnected, !isBusy, readyToRequest() else { return nil }
         let version = requestVersion
         isBusy = true; errorMessage = nil
@@ -155,6 +161,22 @@ final class SpotifyPlaybackModel: ObservableObject {
             report(error)
             return nil
         }
+    }
+
+    /// A discovery result can arrive during a passive Now Playing read. Wait for
+    /// that read only; a real control still rejects overlapping mutations. This
+    /// never retries a write and revalidates reset/route/account changes.
+    private func awaitPendingRefresh(using auth: SpotifyAuthModel) async -> Bool {
+        let version = requestVersion
+        let connection = auth.connectionVersion
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while isRefreshing && isBusy {
+            guard ContinuousClock.now < deadline else { return false }
+            do { try await Task.sleep(for: .milliseconds(20)) }
+            catch { return false }
+            guard version == requestVersion, connection == auth.connectionVersion else { return false }
+        }
+        return !Task.isCancelled && version == requestVersion && connection == auth.connectionVersion
     }
 
     private func localOperation(refreshDelay: Bool = true, operation: () async throws -> Void) async -> Bool {
