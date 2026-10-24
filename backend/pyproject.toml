@@ -12,3 +12,6 @@ dependencies = [
 semantic = [
     "fastembed>=0.7,<1",
 ]
+
+[dependency-groups]
+build = ["pyinstaller==6.22.3"]
