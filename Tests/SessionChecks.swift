@@ -86,6 +86,17 @@ struct SessionChecks {
         }
         print("PASS: continuous refill plays beyond five, preserves context/exclusions, appends ordered URIs without restarting")
 
+        let earlierTrack = model.canonicalTrack(id: canonicalID(4))!
+        precondition(model.canDiscoverSimilar(earlierTrack))
+        SpotifyMockProtocol.server.configure([try json(["status": "ok"])])
+        model.feedback(earlierTrack, event: .like)
+        while model.feedbackBusy { try await Task.sleep(for: .milliseconds(10)) }
+        let earlierFeedback = try JSONSerialization.jsonObject(with: spotifyRequestBody(SpotifyMockProtocol.server.requests()[0])!) as! [String: Any]
+        precondition(earlierFeedback["track_id"] as? String == canonicalID(4))
+        precondition(earlierFeedback["request_id"] as? String != model.selection?.requestID)
+        precondition(model.isLiked(earlierTrack))
+        print("PASS: feedback and similar-song actions retain the original context of earlier queued batches")
+
         SpotifyMockProtocol.server.configure([try state(8, playing: false)])
         await playback.refresh(using: auth); await model.maintainSession()
         precondition(model.isSessionActive && SpotifyMockProtocol.server.requests().count == 1)
@@ -195,5 +206,24 @@ struct SessionChecks {
         await delayedAppend.value
         precondition(model.sessionQueue.upcoming.map(\.uri) == [uri(4), uri(5), uri(6)])
         print("PASS: Up Next follows playback and pause, spans batches, clears on stop, and waits for queue acknowledgements")
+
+        let suite = "com.evan.Mochi.recents-checks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recent = MochiRequestModel(backend: backend, defaults: defaults)
+        SpotifyMockProtocol.server.configure([try response([1])])
+        recent.submit("piano")
+        while recent.isSending { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(recent.recentSessions.first?.prompt == "piano")
+        recent.reset()
+        let restored = MochiRequestModel(backend: backend, defaults: defaults)
+        precondition(restored.recentSessions.count == 1)
+        SpotifyMockProtocol.server.configure([try response([1])])
+        restored.repeatSession(restored.recentSessions[0])
+        while restored.isSending { try await Task.sleep(for: .milliseconds(10)) }
+        precondition(restored.recentSessions.count == 1)
+        restored.clearRecentSessions()
+        precondition(MochiRequestModel(defaults: defaults).recentSessions.isEmpty)
+        print("PASS: recent sessions persist, replay without duplication, survive reset, and can be cleared")
     }
 }

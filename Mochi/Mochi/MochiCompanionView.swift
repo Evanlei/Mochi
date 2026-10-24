@@ -18,6 +18,12 @@ struct MochiQueueSnapshot: Equatable {
     var isStale = false
 }
 
+struct MochiRecentSession: Codable, Identifiable {
+    var id: String { prompt.lowercased() + ":" + mode.rawValue }
+    let prompt: String
+    let mode: MochiDiscoveryMode
+}
+
 @MainActor
 final class MochiRequestModel: ObservableObject {
     let artists: MochiArtistPreferencesModel
@@ -46,6 +52,7 @@ final class MochiRequestModel: ObservableObject {
     @Published private(set) var isRefilling = false
     @Published private(set) var queuedSongCount = 0
     @Published private(set) var sessionQueue = MochiQueueSnapshot()
+    @Published private(set) var recentSessions: [MochiRecentSession] = []
 
     private struct SessionSong {
         let track: MochiSelectedTrack
@@ -64,6 +71,7 @@ final class MochiRequestModel: ObservableObject {
     private let backend: MochiBackendClient
     private let defaults: UserDefaults?
     private static let modeKey = "mochi.taste.discovery-mode"
+    private static let recentsKey = "mochi.recent-listening-requests"
     private var artistsSubscription: AnyCancellable?
     private var sendTask: Task<Void, Never>?
     private var requestGeneration = UUID()
@@ -82,6 +90,10 @@ final class MochiRequestModel: ObservableObject {
         self.resolver = resolver ?? SpotifySearchClient()
         self.artists = artists ?? MochiArtistPreferencesModel(backend: backend)
         self.defaults = defaults
+        if let data = defaults?.data(forKey: Self.recentsKey), data.count < 32_000,
+           let saved = try? JSONDecoder().decode([MochiRecentSession].self, from: data) {
+            recentSessions = Array(saved.filter { !$0.prompt.isEmpty && $0.prompt.count <= 500 }.prefix(12))
+        }
         if !self.artists.names.isEmpty, let saved = defaults?.string(forKey: Self.modeKey), let mode = MochiDiscoveryMode(rawValue: saved) {
             discoveryMode = mode
         }
@@ -120,13 +132,45 @@ final class MochiRequestModel: ObservableObject {
 
     func canDiscoverSimilar(_ track: MochiSelectedTrack) -> Bool {
         !isSending && !isStarting && !isPlaybackBusy && !feedbackBusy
-            && selection?.catalogKind == .lastfmLive && selection?.requestID != nil && currentPrompt != nil
-            && !dislikedTracks.contains(track.id) && selection?.tracks.contains(where: { $0.id == track.id }) == true
+            && context(for: track) != nil && currentPrompt != nil
+            && !dislikedTracks.contains(track.id)
+    }
+
+    func canonicalTrack(id: String) -> MochiSelectedTrack? {
+        sessionSongs.first(where: { $0.track.id == id })?.track ?? selection?.tracks.first(where: { $0.id == id })
+    }
+
+    private func context(for track: MochiSelectedTrack) -> String? {
+        if let song = sessionSongs.first(where: { $0.track.id == track.id }) { return song.requestID }
+        guard selection?.catalogKind == .lastfmLive, selection?.tracks.contains(where: { $0.id == track.id }) == true else { return nil }
+        return selection?.requestID
+    }
+
+    func isLiked(_ track: MochiSelectedTrack) -> Bool {
+        likedTracks.contains(track.id) || (track.liked == true && !dislikedTracks.contains(track.id))
+    }
+
+    func repeatSession(_ session: MochiRecentSession) {
+        guard !isSending, !isStarting else { return }
+        discoveryMode = artists.names.isEmpty ? .balanced : session.mode
+        submit(session.prompt)
+    }
+
+    func clearRecentSessions() {
+        recentSessions = []
+        defaults?.removeObject(forKey: Self.recentsKey)
+    }
+
+    private func rememberSession(_ prompt: String, mode: MochiDiscoveryMode) {
+        let item = MochiRecentSession(prompt: prompt, mode: mode)
+        recentSessions = [item] + recentSessions.filter { $0.id != item.id }
+        recentSessions = Array(recentSessions.prefix(12))
+        if let data = try? JSONEncoder().encode(recentSessions) { defaults?.set(data, forKey: Self.recentsKey) }
     }
 
     func moreLikeThis(_ track: MochiSelectedTrack) {
-        guard canDiscoverSimilar(track), let selection, let requestID = selection.requestID,
-              let canonical = selection.tracks.first(where: { $0.id == track.id }), let currentPrompt else { return }
+        guard canDiscoverSimilar(track), let requestID = context(for: track),
+              let canonical = canonicalTrack(id: track.id), let currentPrompt else { return }
         sendRequest(currentPrompt, seed: canonical, seedRequestID: requestID)
     }
 
@@ -163,6 +207,9 @@ final class MochiRequestModel: ObservableObject {
                 }
                 if seed == nil { self.preferences = Array((self.preferences + [response.receivedPrompt]).suffix(20)) }
                 self.selection = response.selection
+                if seed == nil, response.clarification == nil, response.selection?.tracks.isEmpty == false {
+                    self.rememberSession(response.receivedPrompt, mode: mode)
+                }
                 self.currentPrompt = response.receivedPrompt
                 self.similarTo = seed?.title
                 self.resolvedTracks = [:]; self.likedTracks = []; self.dislikedTracks = []
@@ -506,7 +553,8 @@ final class MochiRequestModel: ObservableObject {
             seenSpotifyURIs = Array((seenSpotifyURIs + additions.map { $0.match.uri }).suffix(500))
             selection = next
             resolvedTracks = Dictionary(uniqueKeysWithValues: (sessionSongs + additions).map { ($0.track.id, $0.match) })
-            likedTracks.formIntersection(Set(next.tracks.map(\.id))); dislikedTracks.formIntersection(Set(next.tracks.map(\.id)))
+            let retained = Set((sessionSongs.map(\.track) + next.tracks).map(\.id))
+            likedTracks.formIntersection(retained); dislikedTracks.formIntersection(retained)
             sessionSongs += additions
             try await appendPending()
         } catch {
@@ -528,8 +576,7 @@ final class MochiRequestModel: ObservableObject {
     }
 
     func feedback(_ track: MochiSelectedTrack, event: MochiBackendClient.FeedbackEvent) {
-        guard !feedbackBusy, let selection, selection.catalogKind == .lastfmLive,
-              let requestID = selection.requestID, selection.tracks.contains(where: { $0.id == track.id }) else { return }
+        guard !feedbackBusy, let requestID = context(for: track) else { return }
         let generation = requestGeneration
         feedbackBusy = true; feedbackMessage = nil; feedbackError = nil
         feedbackTask = Task { [weak self, backend] in
@@ -563,6 +610,7 @@ final class MochiRequestModel: ObservableObject {
                 guard generation == self.requestGeneration, !Task.isCancelled else { return }
                 self.likedTracks = []; self.dislikedTracks = []; self.lastSelectedID = nil
                 self.artists.clear()
+                self.clearRecentSessions()
                 self.feedbackMessage = "Taste memory cleared."
             } catch {
                 guard generation == self.requestGeneration, !Task.isCancelled else { return }
@@ -606,6 +654,7 @@ final class MochiRequestModel: ObservableObject {
 /// This does not claim to import the user's entire Spotify queue.
 struct MochiUpNextView: View {
     @ObservedObject var request: MochiRequestModel
+    @State private var selectedTrack: MochiSelectedTrack?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -617,8 +666,9 @@ struct MochiUpNextView: View {
                         Image(systemName: request.sessionQueue.isPlaying ? "waveform" : "pause.fill")
                             .font(.system(size: 12)).frame(width: 16).accessibilityHidden(true)
                         trackLabel(current)
+                        queueOptions(current)
                     }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("mochiQueueCurrent-\(current.id)")
                     Divider().opacity(0.5)
                     HStack {
@@ -633,8 +683,9 @@ struct MochiUpNextView: View {
                                     Text("\(index + 1)").font(.system(size: 10).monospacedDigit())
                                         .foregroundStyle(.tertiary).frame(width: 16)
                                     trackLabel(song)
+                                    queueOptions(song)
                                 }.padding(.vertical, 5)
-                                    .accessibilityElement(children: .combine)
+                                    .accessibilityElement(children: .contain)
                                     .accessibilityIdentifier("mochiQueueSong-\(song.id)")
                             }
                             if request.sessionQueue.upcoming.isEmpty {
@@ -681,6 +732,51 @@ struct MochiUpNextView: View {
             Text(song.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).help("\(song.title)\n\(song.artist)")
     }
+
+    @ViewBuilder private func queueOptions(_ song: MochiQueuedTrack) -> some View {
+        if let track = request.canonicalTrack(id: song.id) {
+            Button { selectedTrack = track } label: {
+                Image(systemName: "ellipsis").frame(width: 24, height: 28)
+            }.buttonStyle(.plain).accessibilityLabel("Options for \(track.title)")
+                .popover(isPresented: Binding(get: { selectedTrack?.id == track.id }, set: { if !$0 { selectedTrack = nil } })) {
+                    MochiTrackActions(request: request, track: track) { selectedTrack = nil }
+                }
+        }
+    }
+}
+
+struct MochiTrackActions: View {
+    @ObservedObject var request: MochiRequestModel
+    let track: MochiSelectedTrack
+    var onAction: () -> Void
+    private var busy: Bool { request.feedbackBusy || request.isSending || request.isStarting }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            action(request.isLiked(track) ? "Liked" : "Like", symbol: request.isLiked(track) ? "hand.thumbsup.fill" : "hand.thumbsup",
+                   label: "Like \(track.title)", disabled: busy) { request.feedback(track, event: .like) }
+            action(request.dislikedTracks.contains(track.id) ? "Disliked" : "Dislike", symbol: "hand.thumbsdown",
+                   label: "Dislike \(track.title)", disabled: busy) { request.feedback(track, event: .dislike) }
+            action("More like this", symbol: "sparkles", label: "More like \(track.title)", disabled: !request.canDiscoverSimilar(track)) { request.moreLikeThis(track) }
+            if let reasons = track.reasons, !reasons.isEmpty {
+                Divider().padding(.vertical, 4)
+                Text("Why this song").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 8)
+                ForEach(Array(reasons.prefix(6)), id: \.self) { reason in
+                    Text(reason).font(.system(size: 10)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).padding(.vertical, 2)
+                }
+            }
+            Divider().padding(.vertical, 4)
+            if let url = track.spotifySearchURL { Link("Find on Spotify", destination: url).padding(8) }
+            if let url = track.lastfmURL { Link("Open on Last.fm", destination: url).padding(8) }
+        }.font(.system(size: 12)).padding(6).frame(width: 230)
+    }
+
+    private func action(_ title: String, symbol: String, label: String, disabled: Bool, run: @escaping () -> Void) -> some View {
+        Button { onAction(); run() } label: {
+            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(disabled).accessibilityLabel(label)
+    }
 }
 
 struct MochiCompanionCard: View {
@@ -700,6 +796,7 @@ struct MochiCompanionCard: View {
     @State private var optionsPresented = false
     @State private var selectedTrack: MochiSelectedTrack?
     @State private var showsQueue = false
+    @State private var showsRecents = false
 
     init(request: MochiRequestModel, search: SpotifySearchModel, onClose: @escaping () -> Void) {
         self.request = request; self.search = search; self.artists = request.artists; self.onClose = onClose
@@ -819,8 +916,31 @@ struct MochiCompanionCard: View {
         .frame(width: cardSize.width, height: cardSize.height)
         .foregroundStyle(.primary)
         .modifier(CompanionMaterial())
+        .popover(isPresented: $showsRecents, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Recent sessions").font(.system(size: 12, weight: .semibold))
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(request.recentSessions) { session in
+                            Button {
+                                showsRecents = false
+                                request.repeatSession(session)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(session.prompt).font(.system(size: 12)).lineLimit(2)
+                                    Text(session.mode.title).font(.system(size: 10)).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityLabel("Repeat session: \(session.prompt)")
+                        }
+                    }
+                }
+                Button("Clear recent list") { request.clearRecentSessions(); showsRecents = false }
+                    .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(.secondary)
+            }.padding(12).frame(width: 260, height: 280)
+        }
         .onExitCommand {
-            if selectedTrack != nil { selectedTrack = nil }
+            if showsRecents { showsRecents = false }
+            else if selectedTrack != nil { selectedTrack = nil }
             else if optionsPresented { optionsPresented = false }
             else if modePickerPresented { modePickerPresented = false }
             else { onClose() }
@@ -860,6 +980,7 @@ struct MochiCompanionCard: View {
                 utilityAction(request.isSearchPresented ? "Back to listening request" : "Search songs and artists", symbol: "magnifyingglass",
                               disabled: request.isSending || request.isStarting) { request.isSearchPresented.toggle() }
                 utilityAction("Edit favorite artists", symbol: "heart", disabled: request.isSending || request.isStarting || request.feedbackBusy) { artists.present() }
+                utilityAction("Recent sessions", symbol: "clock", disabled: request.recentSessions.isEmpty || request.isSending || request.isStarting) { showsRecents = true }
                 utilityAction(request.isSearchPresented ? "Clear search" : "New listening request", symbol: "arrow.counterclockwise",
                               disabled: request.isSearchPresented && search.isStarting) {
                     if request.isSearchPresented { search.reset() } else { request.reset() }
@@ -1024,23 +1145,8 @@ struct MochiCompanionCard: View {
         .accessibilityLabel("Options for \(track.title)")
         .accessibilityIdentifier("mochiSongOptions-\(track.id)")
         .popover(isPresented: Binding(get: { selectedTrack?.id == track.id }, set: { if !$0 { selectedTrack = nil } }), arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 2) {
-                songAction(request.likedTracks.contains(track.id) ? "Liked" : "Like", symbol: request.likedTracks.contains(track.id) ? "hand.thumbsup.fill" : "hand.thumbsup",
-                           accessibilityLabel: "Like \(track.title)", disabled: request.feedbackBusy || request.isSending || request.isStarting) { request.feedback(track, event: .like) }
-                songAction(request.dislikedTracks.contains(track.id) ? "Disliked" : "Dislike", symbol: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown",
-                           accessibilityLabel: "Dislike \(track.title)", disabled: request.feedbackBusy || request.isSending || request.isStarting) { request.feedback(track, event: .dislike) }
-                songAction("More like this", symbol: "sparkles", accessibilityLabel: "More like \(track.title)", disabled: !request.canDiscoverSimilar(track)) { request.moreLikeThis(track) }
-                Divider().padding(.vertical, 4)
-                if let url = track.spotifySearchURL { Link("Find on Spotify", destination: url).padding(8) }
-                if let url = track.lastfmURL { Link("Open on Last.fm", destination: url).padding(8) }
-            }.font(.system(size: 12)).padding(6).frame(width: 190)
+            MochiTrackActions(request: request, track: track) { selectedTrack = nil }
         }
-    }
-
-    private func songAction(_ title: String, symbol: String, accessibilityLabel: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button { selectedTrack = nil; action() } label: {
-            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(disabled).accessibilityLabel(accessibilityLabel)
     }
 
     private var searchContent: some View {

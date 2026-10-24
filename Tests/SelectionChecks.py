@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from catalog import SampleCatalog, SampleTrack, load_catalog
 from intent import IntentResult, interpret_request
 from selection import SongSelector
+from music import artist_key
 
 SEMANTIC = "--semantic" in sys.argv
 if SEMANTIC:
@@ -54,6 +55,20 @@ class CatalogChecks(unittest.TestCase):
 
 
 class SelectionChecks(unittest.TestCase):
+    def test_explanations_reflect_actual_ranking_inputs(self):
+        candidate = track("liked", "piano")
+        taste = {"tracks": {candidate.id: 1}, "artists": {}, "recent": [candidate.id],
+                 "favorite_artists": {artist_key(candidate.artist)}}
+        result = SongSelector([candidate]).select("piano 80-100 BPM", interpret_request("piano 80-100 BPM", use_semantic=False),
+                                                   use_semantic=False, taste=taste)
+        song = result.tracks[0]
+        self.assertTrue(song.liked)
+        self.assertIn("Previously liked in Mochi.", song.reasons)
+        self.assertIn("From one of your saved favorite artists.", song.reasons)
+        self.assertTrue(any("90 BPM" in reason for reason in song.reasons))
+        self.assertTrue(any("repetition" in reason for reason in song.reasons))
+        self.assertLessEqual(len(song.reasons), 6)
+
     def test_original_request_preserves_instrument_details(self):
         selector = SongSelector(load_catalog())
         for prompt, expected in (("relaxing piano music, no vocals", "sample-quiet-window"),

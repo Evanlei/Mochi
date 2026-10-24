@@ -25,6 +25,8 @@ def words(text):
 
 class SelectedTrack(CatalogTrack):
     score: float
+    reasons: list[str] = []
+    liked: bool = False
 
 
 class SongSelection(BaseModel):
@@ -133,7 +135,19 @@ class SongSelector:
             personal -= min(0.15, 0.03 * taste["recent"].count(track.id))
             values = track.model_dump()
             if self.catalog_kind == "fictional_sample": values["source"] = "fictional_sample"
-            candidates.append(SelectedTrack(**values, score=round(similarity + bonus + personal, 6)))
+            reasons = []
+            if method == "semantic": reasons.append("Its musical tags match the mood of your request.")
+            elif method == "lexical" and similarity > 0: reasons.append("Shares musical tags with your request.")
+            elif allow_unmatched: reasons.append("A popular recording from your artist discovery pools.")
+            if familiar: reasons.append("From one of your saved favorite artists.")
+            elif mode == DiscoveryMode.DISCOVER and favorites: reasons.append("An artist beyond your saved favorites.")
+            liked = taste["tracks"].get(track.id, 0) > 0
+            if liked: reasons.append("Previously liked in Mochi.")
+            elif taste["artists"].get(artist_key(track.artist), 0) > 0: reasons.append("You have liked other music by this artist in Mochi.")
+            if track.bpm is not None and (intent.bpm_min is not None or intent.bpm_max is not None):
+                reasons.append(f"Verified tempo of {track.bpm:g} BPM meets your requested range.")
+            if track.id in taste["recent"]: reasons.append("Recently selected in Mochi; ranked lower to reduce repetition.")
+            candidates.append(SelectedTrack(**values, score=round(similarity + bonus + personal, 6), reasons=reasons[:6], liked=liked))
         source_order = {track.id: index for index, track in enumerate(self.tracks)}
         candidates.sort(key=lambda track: (-track.score, source_order[track.id] if allow_unmatched else track.id))
         message = None if candidates else "No close matches. Try piano, acoustic guitar, jazz, or electronic music."

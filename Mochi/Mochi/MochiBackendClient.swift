@@ -121,9 +121,11 @@ struct MochiSelectedTrack: Decodable, Identifiable {
     let isrc: String?
     let durationMS: Int?
     let featureSpotifyID: String?
+    var reasons: [String]? = nil
+    var liked: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, title, artist, bpm, vocals, energy, description, score, source, isrc
+        case id, title, artist, bpm, vocals, energy, description, score, source, isrc, reasons, liked
         case sourceURL = "source_url", durationMS = "duration_ms", featureSpotifyID = "feature_spotify_id"
     }
 
