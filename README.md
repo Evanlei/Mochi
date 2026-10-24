@@ -7,6 +7,7 @@
 <p align="center">A little desktop companion for music discovery and Spotify playback.</p>
 
 <p align="center">
+  <a href="#demo">Demo</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/PRIVATE_BETA.md">Beta guide</a> ·
@@ -16,6 +17,16 @@
 Describe what you want to hear, choose how familiar or adventurous the session should be, and let Mochi find the next song. A small animated character lives on your desktop; playback controls stay in the menu bar.
 
 > **Private beta.** The native app, discovery engine and continuous queue system are implemented. Automated checks and live Last.fm discovery have passed; real Spotify playback and queue behavior still need verification. See the [release report](docs/private-beta-validation.md).
+
+## Demo
+
+<p align="center">
+  <a href="design/demo/mochi-demo.gif">
+    <img src="design/demo/mochi-demo.gif" alt="Mochi waves, a music request is typed, recommendations appear, and Up Next shows a listening queue." width="840">
+  </a>
+</p>
+
+Native SwiftUI preview with fictional tracks and simulated playback. [Still preview](design/demo/mochi-demo.png) · [Recreate the demo](design/demo/README.md)
 
 ## Features
 
