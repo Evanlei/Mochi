@@ -144,17 +144,13 @@ struct MochiArtistPreferencesView: View {
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(artists.names, id: \.self) { name in
-                    HStack(spacing: 6) {
-                        Text(name).lineLimit(1).help(name)
-                        Button { artists.remove(name) } label: { Image(systemName: "xmark").font(.system(size: 9)) }
-                            .buttonStyle(.plain).accessibilityLabel("Remove \(name)")
+                    MochiArtistChip(name: name) {
+                        artists.remove(name)
                     }
-                    .font(.system(size: 11)).padding(.horizontal, 9).padding(.vertical, 5)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
-            .animation(reduceMotion ? nil : .spring(duration: 0.3), value: artists.names)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82), value: artists.names)
             if artists.names.count < 3 {
                 HStack(spacing: 8) {
                     TextField("Artist name…", text: $artists.query)
@@ -200,5 +196,66 @@ struct MochiArtistPreferencesView: View {
         .onChange(of: artists.names.count) { _, count in focused = count < 3 }
         .onDisappear { artists.cancelSearch() }
         .task { await Task.yield(); focused = true }
+    }
+}
+
+private struct ArtistChipPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.90 : 1.0)
+            .opacity(configuration.isPressed ? 0.80 : 1.0)
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.08)
+                    : .spring(response: 0.22, dampingFraction: 0.80),
+                value: configuration.isPressed
+            )
+    }
+}
+
+struct MochiArtistChip: View {
+    let name: String
+    let onRemove: () -> Void
+    @State private var isHovered = false
+    @State private var isRemoveHovered = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "music.mic")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(Color(red: 0.31, green: 0.56, blue: 0.42))
+            Text(name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.9))
+                .lineLimit(1)
+                .help(name)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(isRemoveHovered ? Color.primary : Color.secondary.opacity(0.6))
+            }
+            .buttonStyle(ArtistChipPressStyle())
+            .accessibilityLabel("Remove \(name)")
+            .onHover { hovering in
+                isRemoveHovered = hovering
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4.5)
+        .background(
+            Color(red: 0.31, green: 0.56, blue: 0.42).opacity(isHovered ? 0.14 : 0.08),
+            in: Capsule()
+        )
+        .overlay(
+            Capsule().strokeBorder(
+                Color(red: 0.31, green: 0.56, blue: 0.42).opacity(isHovered ? 0.35 : 0.18),
+                lineWidth: 0.5
+            )
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 }

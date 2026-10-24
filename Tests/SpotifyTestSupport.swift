@@ -28,8 +28,9 @@ final class SpotifyMockServer: @unchecked Sendable {
     func respond(to request: URLRequest) -> SpotifyReply {
         lock.lock(); defer { lock.unlock() }
         recorded.append(request)
-        precondition(!replies.isEmpty, "Unexpected extra network request")
-        return replies.removeFirst()
+        precondition(!replies.isEmpty, "Unexpected extra network request: \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "?")")
+        let reply = replies.removeFirst()
+        return reply
     }
     func requests() -> [URLRequest] {
         lock.lock(); defer { lock.unlock() }

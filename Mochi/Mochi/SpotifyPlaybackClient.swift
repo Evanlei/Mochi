@@ -169,7 +169,8 @@ struct SpotifyPlaybackItem: Decodable, Sendable {
 }
 
 struct SpotifyPlaybackAlbum: Decodable, Sendable {
-    let images: [Image]?
+    var name: String? = nil
+    var images: [Image]? = nil
     struct Image: Decodable, Sendable { let url: String }
 }
 

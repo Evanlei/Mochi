@@ -655,45 +655,67 @@ final class MochiRequestModel: ObservableObject {
 struct MochiUpNextView: View {
     @ObservedObject var request: MochiRequestModel
     @State private var selectedTrack: MochiSelectedTrack?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if request.isSessionActive {
                 if let current = request.sessionQueue.current {
-                    Text(request.sessionQueue.isStale ? "Last known song" : (request.sessionQueue.isPlaying ? "Now playing" : "Paused"))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Image(systemName: request.sessionQueue.isPlaying ? "waveform" : "pause.fill")
-                            .font(.system(size: 12)).frame(width: 16).accessibilityHidden(true)
-                        trackLabel(current)
-                        queueOptions(current)
+                    // Hero Now-Playing Card
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            playStatusBadge
+                            Spacer()
+                        }
+                        HStack(spacing: 8) {
+                            nowPlayingIcon
+                            trackLabel(current)
+                            queueOptions(current)
+                        }
                     }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 8)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    )
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("mochiQueueCurrent-\(current.id)")
+
                     Divider().opacity(0.5)
+
+                    // Upcoming Tracks Section
                     HStack {
                         Text("Up next")
                         Spacer()
                         Text("\(request.sessionQueue.upcoming.count)")
-                    }.font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(request.sessionQueue.upcoming.enumerated()), id: \.element.id) { index, song in
-                                HStack(spacing: 8) {
-                                    Text("\(index + 1)").font(.system(size: 10).monospacedDigit())
-                                        .foregroundStyle(.tertiary).frame(width: 16)
-                                    trackLabel(song)
-                                    queueOptions(song)
-                                }.padding(.vertical, 5)
-                                    .accessibilityElement(children: .contain)
-                                    .accessibilityIdentifier("mochiQueueSong-\(song.id)")
+                                MochiUpcomingRow(
+                                    index: index + 1,
+                                    song: song,
+                                    request: request,
+                                    selectedTrack: $selectedTrack
+                                )
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("mochiQueueSong-\(song.id)")
                             }
                             if request.sessionQueue.upcoming.isEmpty {
-                                Text("No songs queued yet.").font(.system(size: 11)).foregroundStyle(.secondary)
-                                    .padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                                Text("No songs queued yet.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
-                    }.frame(maxHeight: .infinity)
+                    }
+                    .frame(maxHeight: .infinity)
                 } else {
                     Spacer(minLength: 0)
                     Text("Checking Spotify…").font(.system(size: 12, weight: .medium))
@@ -701,22 +723,95 @@ struct MochiUpNextView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
+
+                // Footer with Status & Refill Indicator
                 HStack(spacing: 6) {
-                    Text(status).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    if request.isRefilling {
+                        refillBadge
+                    }
+                    Text(status)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("mochiQueueStatus")
                     Button("Stop") { request.stopSession() }
-                        .buttonStyle(.plain).accessibilityLabel("Stop continuous listening")
+                        .buttonStyle(MochiPressStyle(scale: 0.95))
+                        .accessibilityLabel("Stop continuous listening")
                         .help("Stop refills. Songs already queued in Spotify remain there.")
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
             } else {
                 Text("Continuous listening is off.").font(.system(size: 12, weight: .medium))
                 Text("Spotify can still play songs already queued. Send a new listening request to continue.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("mochiUpNext")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mochiUpNext")
+    }
+
+    private var playStatusBadge: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(
+                    request.sessionQueue.isPlaying && !request.sessionQueue.isStale
+                        ? Color.green
+                        : (request.sessionQueue.isStale ? Color.orange : Color.secondary.opacity(0.6))
+                )
+                .frame(width: 5, height: 5)
+            Text(request.sessionQueue.isStale ? "Last known song" : (request.sessionQueue.isPlaying ? "Now playing" : "Paused"))
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(request.sessionQueue.isPlaying ? .primary : .secondary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color.primary.opacity(0.04), in: Capsule())
+    }
+
+    private var nowPlayingIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(request.sessionQueue.isPlaying ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+            if request.sessionQueue.isPlaying {
+                if #available(macOS 14.0, *) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .symbolEffect(.variableColor.iterative.reversing, isActive: !reduceMotion)
+                } else {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            } else {
+                Image(systemName: "pause.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .accessibilityHidden(true)
+    }
+
+    private var refillBadge: some View {
+        HStack(spacing: 3) {
+            if #available(macOS 14.0, *) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .symbolEffect(.rotate, isActive: !reduceMotion)
+            } else {
+                ProgressView().controlSize(.mini)
+            }
+            Text("Refilling")
+                .font(.system(size: 8.5, weight: .semibold))
+        }
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.accentColor.opacity(0.12), in: Capsule())
+        .accessibilityHidden(true)
     }
 
     private var status: String {
@@ -730,18 +825,98 @@ struct MochiUpNextView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(song.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
             Text(song.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-        }.frame(maxWidth: .infinity, alignment: .leading).help("\(song.title)\n\(song.artist)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help("\(song.title)\n\(song.artist)")
     }
 
     @ViewBuilder private func queueOptions(_ song: MochiQueuedTrack) -> some View {
         if let track = request.canonicalTrack(id: song.id) {
             Button { selectedTrack = track } label: {
-                Image(systemName: "ellipsis").frame(width: 24, height: 28)
-            }.buttonStyle(.plain).accessibilityLabel("Options for \(track.title)")
-                .popover(isPresented: Binding(get: { selectedTrack?.id == track.id }, set: { if !$0 { selectedTrack = nil } })) {
-                    MochiTrackActions(request: request, track: track) { selectedTrack = nil }
-                        .onExitCommand { selectedTrack = nil }
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(MochiPressStyle(scale: 0.92))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Options for \(track.title)")
+            .popover(
+                isPresented: Binding(
+                    get: { selectedTrack?.id == track.id },
+                    set: { if !$0 { selectedTrack = nil } }
+                ),
+                arrowEdge: .trailing
+            ) {
+                MochiTrackActions(request: request, track: track) { selectedTrack = nil }
+                    .onExitCommand { selectedTrack = nil }
+            }
+        }
+    }
+}
+
+struct MochiUpcomingRow: View {
+    let index: Int
+    let song: MochiQueuedTrack
+    @ObservedObject var request: MochiRequestModel
+    @Binding var selectedTrack: MochiSelectedTrack?
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("\(index)")
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundStyle(isHovered ? .secondary : .tertiary)
+                .frame(width: 18, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(song.artist)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help("\(song.title)\n\(song.artist)")
+
+            if let track = request.canonicalTrack(id: song.id) {
+                Button {
+                    selectedTrack = track
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(MochiPressStyle(scale: 0.92))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .accessibilityLabel("Options for \(track.title)")
+                .popover(
+                    isPresented: Binding(
+                        get: { selectedTrack?.id == track.id },
+                        set: { if !$0 { selectedTrack = nil } }
+                    ),
+                    arrowEdge: .trailing
+                ) {
+                    MochiTrackActions(request: request, track: track) {
+                        selectedTrack = nil
+                    }
+                    .onExitCommand { selectedTrack = nil }
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            isHovered ? Color.primary.opacity(0.04) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }
@@ -754,29 +929,285 @@ struct MochiTrackActions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            action(request.isLiked(track) ? "Liked" : "Like", symbol: request.isLiked(track) ? "hand.thumbsup.fill" : "hand.thumbsup",
-                   label: "Like \(track.title)", disabled: busy) { request.feedback(track, event: .like) }
-            action(request.dislikedTracks.contains(track.id) ? "Disliked" : "Dislike", symbol: "hand.thumbsdown",
-                   label: "Dislike \(track.title)", disabled: busy) { request.feedback(track, event: .dislike) }
-            action("More like this", symbol: "sparkles", label: "More like \(track.title)", disabled: !request.canDiscoverSimilar(track)) { request.moreLikeThis(track) }
+            action(
+                request.isLiked(track) ? "Liked" : "Like",
+                symbol: request.isLiked(track) ? "hand.thumbsup.fill" : "hand.thumbsup",
+                label: "Like \(track.title)",
+                disabled: busy,
+                isHighlighted: request.isLiked(track)
+            ) {
+                request.feedback(track, event: .like)
+            }
+
+            action(
+                request.dislikedTracks.contains(track.id) ? "Disliked" : "Dislike",
+                symbol: request.dislikedTracks.contains(track.id) ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                label: "Dislike \(track.title)",
+                disabled: busy,
+                isHighlighted: request.dislikedTracks.contains(track.id)
+            ) {
+                request.feedback(track, event: .dislike)
+            }
+
+            action(
+                "More like this",
+                symbol: "sparkles",
+                label: "More like \(track.title)",
+                disabled: !request.canDiscoverSimilar(track)
+            ) {
+                request.moreLikeThis(track)
+            }
+
             if let reasons = track.reasons, !reasons.isEmpty {
-                Divider().padding(.vertical, 4)
-                Text("Why this song").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 8)
-                ForEach(Array(reasons.prefix(6)), id: \.self) { reason in
-                    Text(reason).font(.system(size: 10)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).padding(.vertical, 2)
+                Divider().opacity(0.5).padding(.vertical, 3).padding(.horizontal, 4)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text("Why this song")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 1)
+
+                    ForEach(Array(reasons.prefix(6)), id: \.self) { reason in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("•")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.tertiary)
+                            Text(reason)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(1.5)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 1)
+                    }
                 }
             }
-            Divider().padding(.vertical, 4)
-            if let url = track.spotifySearchURL { Link("Find on Spotify", destination: url).padding(8) }
-            if let url = track.lastfmURL { Link("Open on Last.fm", destination: url).padding(8) }
-        }.font(.system(size: 12)).padding(6).frame(width: 230)
+
+            if track.spotifySearchURL != nil || track.lastfmURL != nil {
+                Divider().opacity(0.5).padding(.vertical, 3).padding(.horizontal, 4)
+                if let url = track.spotifySearchURL {
+                    Link(destination: url) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 12, weight: .regular))
+                                .frame(width: 16, alignment: .center)
+                            Text("Find on Spotify")
+                                .font(.system(size: 12, weight: .regular))
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(MochiMenuRowStyle())
+                    .accessibilityLabel("Find on Spotify")
+                }
+                if let url = track.lastfmURL {
+                    Link(destination: url) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 12, weight: .regular))
+                                .frame(width: 16, alignment: .center)
+                            Text("Open on Last.fm")
+                                .font(.system(size: 12, weight: .regular))
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(MochiMenuRowStyle())
+                    .accessibilityLabel("Open on Last.fm")
+                }
+            }
+        }
+        .font(.system(size: 12))
+        .padding(6)
+        .frame(width: 236)
     }
 
-    private func action(_ title: String, symbol: String, label: String, disabled: Bool, run: @escaping () -> Void) -> some View {
-        Button { onAction(); run() } label: {
-            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(disabled).accessibilityLabel(label)
+    private func action(
+        _ title: String,
+        symbol: String,
+        label: String,
+        disabled: Bool,
+        isHighlighted: Bool = false,
+        run: @escaping () -> Void
+    ) -> some View {
+        Button {
+            onAction()
+            run()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .regular))
+                    .frame(width: 16, alignment: .center)
+                    .foregroundStyle(isHighlighted ? Color.accentColor : .primary)
+                Text(title)
+                    .font(.system(size: 12, weight: .regular))
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MochiMenuRowStyle())
+        .disabled(disabled)
+        .accessibilityLabel(label)
+    }
+}
+
+// MARK: - Recommendation Row
+
+struct MochiRecommendationRow: View {
+    @ObservedObject var request: MochiRequestModel
+    let track: MochiSelectedTrack
+    @Binding var selectedTrack: MochiSelectedTrack?
+    var onSelectOption: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+    @State private var isOptionsHovered = false
+
+    private var isLive: Bool { request.selection?.catalogKind == .lastfmLive }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if isLive && request.isConnected {
+                Button {
+                    request.play(track)
+                } label: {
+                    trackDetails
+                }
+                .buttonStyle(MochiPressStyle(scale: 0.985))
+                .disabled(!request.canPlay(track))
+                .accessibilityLabel("Play \(track.title)")
+                .help("Play \(track.title) by \(track.artist)")
+            } else {
+                trackDetails
+            }
+
+            if isLive {
+                optionsButton
+            }
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onHover { hovering in
+            if reduceMotion {
+                isHovered = hovering
+            } else {
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Color.primary.opacity(0.06).frame(height: 0.5)
+                .padding(.horizontal, 4)
+        }
+        .help("\(track.title)\n\(track.artist)\n\(track.description)")
+        .accessibilityElement(children: isLive ? .contain : .combine)
+        .accessibilityIdentifier("mochiSelectedTrack-\(track.id)")
+    }
+
+    private var trackDetails: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(hex: 0x4E8E6C).opacity(0.12))
+                Image(systemName: "music.note")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4E8E6C))
+            }
+            .frame(width: 26, height: 26)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(track.artist)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if track.bpm != nil || track.vocals != nil || track.energy != nil {
+                    HStack(spacing: 4) {
+                        if let energy = track.energy {
+                            metadataBadge(energy == .low ? "Low energy" : "High energy")
+                        }
+                        if let vocals = track.vocals {
+                            metadataBadge(vocals ? "Vocals" : "Instrumental")
+                        }
+                        if let bpm = track.bpm {
+                            metadataBadge("\(String(format: "%g", bpm)) BPM")
+                        }
+                    }
+                    .padding(.top, 1.5)
+                    .help(track.details)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func metadataBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8.5, weight: .medium))
+            .foregroundStyle(Color(hex: 0x4E8E6C))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(Color(hex: 0x4E8E6C).opacity(0.10), in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color(hex: 0x4E8E6C).opacity(0.20), lineWidth: 0.5)
+            )
+    }
+
+    private var optionsButton: some View {
+        Button {
+            onSelectOption()
+            selectedTrack = track
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12))
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isOptionsHovered ? Color.primary.opacity(0.08) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(MochiPressStyle(scale: 0.92))
+        .foregroundStyle(.secondary)
+        .onHover { isOptionsHovered = $0 }
+        .help("Like, dislike, more like this, and Spotify options")
+        .accessibilityLabel("Options for \(track.title)")
+        .accessibilityIdentifier("mochiSongOptions-\(track.id)")
+        .popover(
+            isPresented: Binding(
+                get: { selectedTrack?.id == track.id },
+                set: { if !$0 { selectedTrack = nil } }
+            ),
+            arrowEdge: .trailing
+        ) {
+            MochiTrackActions(request: request, track: track) {
+                selectedTrack = nil
+            }
+        }
     }
 }
 
@@ -804,11 +1235,12 @@ struct MochiCompanionCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 6) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 6) {
                 if artists.isPresented || request.isSearchPresented {
                     Text(artists.isPresented ? "Favorite artists" : "Search Spotify")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     discoveryPicker
@@ -817,9 +1249,17 @@ struct MochiCompanionCard: View {
                 if !artists.isPresented {
                     optionsButton
                 }
-                Button(action: onClose) { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                    .help("Close Mochi")
-                    .accessibilityLabel("Close Mochi")
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(Color.primary.opacity(0.65))
+                        .frame(width: 24, height: 24)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(MochiPressStyle(scale: 0.92))
+                .help("Close Mochi")
+                .accessibilityLabel("Close Mochi")
             }
             .buttonStyle(.plain)
             .font(.system(size: 10))
@@ -831,7 +1271,7 @@ struct MochiCompanionCard: View {
             } else if request.hasSelectedTracks {
                 VStack(alignment: .leading, spacing: 8) {
                     if request.isSessionActive {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 10) {
                             resultTab("Picks", queue: false)
                             resultTab("Up Next", queue: true)
                             Spacer()
@@ -844,10 +1284,25 @@ struct MochiCompanionCard: View {
                     }
                 }.frame(maxHeight: .infinity)
             } else if request.preferences.isEmpty && !request.isSending && request.reply == "What do you feel like\nlistening to?" {
-                HStack(spacing: 6) {
-                    choice("Focus")
-                    choice("Unwind")
-                    choice("Surprise me")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x4E8E6C))
+                        Text("What are you in the mood for?")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary.opacity(0.85))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(request.reply)
+                    .accessibilityIdentifier("mochiReply")
+
+                    HStack(spacing: 6) {
+                        choice("Focus")
+                        choice("Unwind")
+                        choice("Surprise me")
+                    }
                 }
             } else {
                 HStack(spacing: 6) {
@@ -857,7 +1312,8 @@ struct MochiCompanionCard: View {
                         .help(request.reply).accessibilityIdentifier("mochiReply")
                     if request.isSending {
                         Button("Cancel") { request.cancelRequest() }
-                            .font(.system(size: 10)).buttonStyle(.plain)
+                            .font(.system(size: 10))
+                            .buttonStyle(MochiPressStyle(scale: 0.95))
                     }
                 }
             }
@@ -865,10 +1321,16 @@ struct MochiCompanionCard: View {
             Spacer(minLength: 0)
 
             if !artists.isPresented {
+                let canSubmit = request.isSearchPresented ? search.canSubmit : request.canSubmit
                 HStack(spacing: 8) {
+                    Image(systemName: request.isSearchPresented ? "magnifyingglass" : "music.note")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(composerFocused ? Color(hex: 0x4E8E6C) : Color.secondary.opacity(0.6))
+                        .frame(width: 14)
+
                     TextField("", text: composerText, axis: .vertical)
                         .id(request.isSearchPresented)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11.5))
                         .textFieldStyle(.plain)
                         .lineLimit(1...2)
                         .focused($composerFocused)
@@ -881,8 +1343,8 @@ struct MochiCompanionCard: View {
                             if composerText.wrappedValue.isEmpty {
                                 Text(request.isSearchPresented
                                      ? (search.kind == .song ? "Song title…" : "Artist name…") : "Mood, artist, or song…")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(Color.primary.opacity(0.45))
                                     .fixedSize(horizontal: false, vertical: true)
                                     .allowsHitTesting(false).accessibilityHidden(true)
                             }
@@ -896,21 +1358,45 @@ struct MochiCompanionCard: View {
                                 ProgressView().controlSize(.mini)
                             } else {
                                 Image(systemName: request.isSearchPresented ? "magnifyingglass" : "arrow.up")
+                                    .font(.system(size: 12, weight: .bold))
                             }
                         }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .frame(width: 26, height: 26)
-                            .background(Color.primary.opacity(0.07), in: Circle())
+                        .foregroundStyle(canSubmit ? Color.white : Color.primary.opacity(0.25))
+                        .frame(width: 26, height: 26)
+                        .background(
+                            canSubmit ? Color(hex: 0x4E8E6C) : Color.primary.opacity(0.06),
+                            in: Circle()
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(canSubmit ? Color.white.opacity(0.25) : Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
+                        .shadow(color: canSubmit ? Color(hex: 0x4E8E6C).opacity(0.35) : Color.clear, radius: 3, x: 0, y: 1)
                     }
-                    .buttonStyle(MochiPressStyle())
-                    .disabled(request.isSearchPresented ? !search.canSubmit : !request.canSubmit)
+                    .buttonStyle(MochiPressStyle(scale: 0.92))
+                    .disabled(!canSubmit)
                     .help(request.isSearchPresented ? "Search Spotify" : "Send listening request")
                     .accessibilityLabel(request.isSearchPresented ? "Search Spotify" : "Send listening request")
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 42)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(
+                            composerFocused
+                                ? Color(hex: 0x4E8E6C).opacity(0.65)
+                                : Color.primary.opacity(0.08),
+                            lineWidth: composerFocused ? 1.0 : 0.5
+                        )
+                )
+                .shadow(
+                    color: composerFocused ? Color(hex: 0x4E8E6C).opacity(0.22) : Color.black.opacity(0.02),
+                    radius: composerFocused ? 5 : 2,
+                    x: 0,
+                    y: composerFocused ? 0 : 1
+                )
+                .animation(.easeInOut(duration: 0.18), value: composerFocused)
             }
         }
         .padding(12)
@@ -963,45 +1449,112 @@ struct MochiCompanionCard: View {
             selectedTrack = nil
             showsQueue = queue
         } label: {
-            Text(title).font(.system(size: 11, weight: showsQueue == queue ? .semibold : .regular))
-                .foregroundStyle(showsQueue == queue ? .primary : .secondary)
-                .padding(.vertical, 5).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel(queue ? "Show Up Next" : "Show recommendations")
-            .accessibilityValue(showsQueue == queue ? "Selected" : "Not selected")
+            HStack(spacing: 5) {
+                Image(systemName: queue ? "list.bullet" : "music.note.list")
+                    .font(.system(size: 10, weight: showsQueue == queue ? .semibold : .regular))
+                Text(title)
+                    .font(.system(size: 11, weight: showsQueue == queue ? .semibold : .regular))
+            }
+            .foregroundStyle(showsQueue == queue ? Color.primary : Color.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                showsQueue == queue ? Color.primary.opacity(0.065) : Color.clear,
+                in: Capsule()
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(MochiPressStyle(scale: 0.96))
+        .accessibilityLabel(queue ? "Show Up Next" : "Show recommendations")
+        .accessibilityValue(showsQueue == queue ? "Selected" : "Not selected")
     }
 
     private var optionsButton: some View {
-        Button { modePickerPresented = false; optionsPresented.toggle() } label: {
-            Image(systemName: "ellipsis").frame(width: 24, height: 24)
+        Button {
+            modePickerPresented = false
+            optionsPresented.toggle()
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(optionsPresented ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035))
+                )
+                .contentShape(Circle())
         }
+        .buttonStyle(MochiPressStyle(scale: 0.92))
         .help("Search, favorite artists, and listening options")
         .accessibilityLabel("Listening options")
         .popover(isPresented: $optionsPresented, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 2) {
-                utilityAction(request.isSearchPresented ? "Back to listening request" : "Search songs and artists", symbol: "magnifyingglass",
-                              disabled: request.isSending || request.isStarting) { request.isSearchPresented.toggle() }
-                utilityAction("Edit favorite artists", symbol: "heart", disabled: request.isSending || request.isStarting || request.feedbackBusy) { artists.present() }
-                utilityAction("Recent sessions", symbol: "clock", disabled: request.recentSessions.isEmpty || request.isSending || request.isStarting) { showsRecents = true }
-                utilityAction(request.isSearchPresented ? "Clear search" : "New listening request", symbol: "arrow.counterclockwise",
-                              disabled: request.isSearchPresented && search.isStarting) {
+                utilityAction(
+                    request.isSearchPresented ? "Back to listening request" : "Search songs and artists",
+                    symbol: request.isSearchPresented ? "arrow.left" : "magnifyingglass",
+                    disabled: request.isSending || request.isStarting
+                ) {
+                    request.isSearchPresented.toggle()
+                }
+
+                utilityAction(
+                    "Edit favorite artists",
+                    symbol: "heart",
+                    disabled: request.isSending || request.isStarting || request.feedbackBusy
+                ) {
+                    artists.present()
+                }
+
+                utilityAction(
+                    "Recent sessions",
+                    symbol: "clock",
+                    disabled: request.recentSessions.isEmpty || request.isSending || request.isStarting
+                ) {
+                    showsRecents = true
+                }
+
+                utilityAction(
+                    request.isSearchPresented ? "Clear search" : "New listening request",
+                    symbol: "arrow.counterclockwise",
+                    disabled: request.isSearchPresented && search.isStarting
+                ) {
                     if request.isSearchPresented { search.reset() } else { request.reset() }
                 }
+
                 if request.isConnected && request.hasSelectedTracks {
-                    utilityAction(request.usesDesktopPlayer ? "Play first match" : "Play matches", symbol: "play", disabled: !request.canPlayMatches) { request.playMatches() }
+                    utilityAction(
+                        request.usesDesktopPlayer ? "Play first match" : "Play matches",
+                        symbol: "play.fill",
+                        disabled: !request.canPlayMatches
+                    ) {
+                        request.playMatches()
+                    }
                 }
+
                 if request.isSessionActive {
-                    utilityAction("Stop continuous listening", symbol: "stop.circle") { request.stopSession() }
+                    utilityAction("Stop continuous listening", symbol: "stop.circle") {
+                        request.stopSession()
+                    }
                 }
-                Divider().padding(.vertical, 4)
-                utilityAction("Forget taste memory", symbol: "eraser", disabled: request.feedbackBusy || request.isSending || request.isStarting) { request.clearTaste() }
-            }.font(.system(size: 12)).padding(6).frame(width: 225)
+
+                Divider().opacity(0.5).padding(.vertical, 3).padding(.horizontal, 4)
+
+                utilityAction(
+                    "Forget taste memory",
+                    symbol: "eraser",
+                    disabled: request.feedbackBusy || request.isSending || request.isStarting
+                ) {
+                    request.clearTaste()
+                }
+            }
+            .font(.system(size: 12))
+            .padding(6)
+            .frame(width: 228)
         }
     }
 
     private func utilityAction(_ title: String, symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
-            // Dismiss before replacing the focused field. A native popover's delayed
-            // close animation could otherwise restore the retired composer's responder.
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -1010,17 +1563,49 @@ struct MochiCompanionCard: View {
                 composerFocused = !artists.isPresented
             }
         } label: {
-            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(disabled).accessibilityLabel(title)
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .regular))
+                    .frame(width: 16, alignment: .center)
+                Text(title)
+                    .font(.system(size: 12, weight: .regular))
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MochiMenuRowStyle())
+        .disabled(disabled)
+        .accessibilityLabel(title)
+    }
+
+    private func discoveryIcon(for mode: MochiDiscoveryMode) -> String {
+        switch mode {
+        case .familiar: return "heart.fill"
+        case .balanced: return "sparkles"
+        case .discover: return "safari.fill"
+        }
     }
 
     private var discoveryPicker: some View {
         Button { optionsPresented = false; modePickerPresented.toggle() } label: {
             HStack(spacing: 5) {
-                Text(request.discoveryMode.title).font(.system(size: 11, weight: .medium))
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
-            }.frame(height: 24).contentShape(Rectangle())
+                Image(systemName: discoveryIcon(for: request.discoveryMode))
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4E8E6C))
+                Text(request.discoveryMode.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.92))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(.secondary.opacity(0.8))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Color.primary.opacity(0.045), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+            .contentShape(Capsule())
         }
+        .buttonStyle(MochiPressStyle(scale: 0.96))
         .help("Choose how familiar or adventurous your next request should be")
         .accessibilityLabel("Music discovery preference")
         .accessibilityValue(request.discoveryMode.title)
@@ -1070,7 +1655,9 @@ struct MochiCompanionCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .help(request.resultNotice ?? request.reply).accessibilityIdentifier("mochiReply")
                     if request.isSending {
-                        Button("Cancel") { request.cancelRequest() }.font(.system(size: 10)).buttonStyle(.plain)
+                        Button("Cancel") { request.cancelRequest() }
+                            .font(.system(size: 10))
+                            .buttonStyle(MochiPressStyle(scale: 0.95))
                     }
                 }.foregroundStyle(.secondary)
             }
@@ -1083,24 +1670,17 @@ struct MochiCompanionCard: View {
                     .accessibilityIdentifier("mochiSampleCatalog")
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(request.selection?.tracks ?? []) { track in
-                        HStack(spacing: 4) {
-                            if request.selection?.catalogKind == .lastfmLive && request.isConnected {
-                                Button { request.play(track) } label: { songLabel(track) }
-                                    .buttonStyle(.plain).disabled(!request.canPlay(track))
-                                    .accessibilityLabel("Play \(track.title)")
-                                    .help("Play \(track.title) by \(track.artist)")
-                            } else {
-                                songLabel(track)
+                        MochiRecommendationRow(
+                            request: request,
+                            track: track,
+                            selectedTrack: $selectedTrack,
+                            onSelectOption: {
+                                optionsPresented = false
+                                modePickerPresented = false
                             }
-                            if request.selection?.catalogKind == .lastfmLive { songOptions(track) }
-                        }
-                        .padding(.vertical, 5).padding(.horizontal, 3)
-                        .overlay(alignment: .bottom) { Color.primary.opacity(0.07).frame(height: 0.5) }
-                        .help("\(track.title)\n\(track.artist)\n\(track.description)")
-                        .accessibilityElement(children: request.selection?.catalogKind == .lastfmLive ? .contain : .combine)
-                        .accessibilityIdentifier("mochiSelectedTrack-\(track.id)")
+                        )
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1127,29 +1707,6 @@ struct MochiCompanionCard: View {
         }.frame(maxHeight: .infinity)
     }
 
-    private func songLabel(_ track: MochiSelectedTrack) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(track.title).font(.system(size: 12, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
-            Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-            if track.bpm != nil || track.vocals != nil || track.energy != nil {
-                Text(track.details).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-    }
-
-    private func songOptions(_ track: MochiSelectedTrack) -> some View {
-        Button { optionsPresented = false; modePickerPresented = false; selectedTrack = track } label: {
-            Image(systemName: "ellipsis").font(.system(size: 12)).frame(width: 28, height: 30)
-        }
-        .buttonStyle(.plain).foregroundStyle(.secondary)
-        .help("Like, dislike, more like this, and Spotify options")
-        .accessibilityLabel("Options for \(track.title)")
-        .accessibilityIdentifier("mochiSongOptions-\(track.id)")
-        .popover(isPresented: Binding(get: { selectedTrack?.id == track.id }, set: { if !$0 { selectedTrack = nil } }), arrowEdge: .trailing) {
-            MochiTrackActions(request: request, track: track) { selectedTrack = nil }
-        }
-    }
-
     private var searchContent: some View {
         VStack(spacing: 8) {
             Picker("Search by", selection: $search.kind) {
@@ -1163,7 +1720,9 @@ struct MochiCompanionCard: View {
                     Spacer(minLength: 0)
                     ProgressView().controlSize(.small)
                     Text("Searching Spotify…").font(.system(size: 11))
-                    Button("Cancel search") { search.cancelSearch() }.font(.system(size: 11))
+                    Button("Cancel search") { search.cancelSearch() }
+                        .font(.system(size: 11))
+                        .buttonStyle(MochiPressStyle(scale: 0.95))
                     Spacer(minLength: 0)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if search.results.isEmpty {
@@ -1200,7 +1759,7 @@ struct MochiCompanionCard: View {
                     AsyncImage(url: track.artworkURL) { image in image.resizable().scaledToFit() } placeholder: {
                         Image(systemName: "music.note").foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.white.opacity(0.3))
+                            .background(Color.primary.opacity(0.06))
                     }.frame(width: 32, height: 32).clipShape(RoundedRectangle(cornerRadius: 5))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(track.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
@@ -1215,7 +1774,7 @@ struct MochiCompanionCard: View {
                     }
                 }.contentShape(Rectangle())
             }
-            .buttonStyle(.plain).disabled(!search.canPlay(track))
+            .buttonStyle(MochiPressStyle(scale: 0.985)).disabled(!search.canPlay(track))
             .opacity(track.canPlay ? 1 : 0.55)
             .help("\(track.name)\n\(track.artistNames)\n\(track.album.name)")
             .accessibilityLabel("Play \(track.name) by \(track.artistNames)")
@@ -1227,28 +1786,152 @@ struct MochiCompanionCard: View {
             .accessibilityLabel("Open \(track.name) in Spotify")
         }
         .padding(6)
-        .background(Color.white.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
     }
 
     private func choice(_ title: String) -> some View {
-        Button { request.submit(title); composerFocused = true } label: {
-            Text(title).font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10).frame(height: 26).contentShape(Capsule())
+        PresetPromptChip(
+            title: title,
+            icon: chipIcon(for: title),
+            tintColor: chipColor(for: title),
+            isDisabled: request.isSending || request.isStarting
+        ) {
+            request.submit(title)
+            composerFocused = true
         }
-        .buttonStyle(MochiPressStyle())
-        .disabled(request.isSending || request.isStarting)
+    }
+
+    private func chipIcon(for title: String) -> String {
+        switch title {
+        case "Focus": return "leaf.fill"
+        case "Unwind": return "moon.stars.fill"
+        case "Surprise me": return "sparkles"
+        default: return "music.note"
+        }
+    }
+
+    private func chipColor(for title: String) -> Color {
+        switch title {
+        case "Focus": return Color(hex: 0x4E8E6C)
+        case "Unwind": return Color(hex: 0x5C74A6)
+        case "Surprise me": return Color(hex: 0xCF7C46)
+        default: return Color(hex: 0x4E8E6C)
+        }
     }
 }
 
-private struct MochiPressStyle: ButtonStyle {
+// MARK: - Preset Prompt Chip (F6)
+
+private struct PresetPromptChip: View {
+    let title: String
+    let icon: String
+    let tintColor: Color
+    let isDisabled: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(tintColor)
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary.opacity(0.88))
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 27)
+            .background(
+                tintColor.opacity(isHovered ? 0.16 : 0.08),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        tintColor.opacity(isHovered ? 0.40 : 0.20),
+                        lineWidth: isHovered ? 0.75 : 0.5
+                    )
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(MochiPressStyle(scale: 0.95))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
+        .disabled(isDisabled)
+        .accessibilityLabel(title)
+    }
+}
+
+// MARK: - Spring Micro-Interaction Press Style (F12)
+
+struct MochiPressStyle: ButtonStyle {
+    var scale: CGFloat = 0.97
+    var pressedOpacity: Double = 0.80
+    @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(reduceMotion ? .easeOut(duration: 0.08) : .spring(response: configuration.isPressed ? 0.18 : 0.22, dampingFraction: 0.86), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1.0)
+            .opacity(
+                !isEnabled
+                    ? 0.45
+                    : (configuration.isPressed ? (reduceMotion ? 0.88 : pressedOpacity) : 1.0)
+            )
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.08)
+                    : .spring(
+                        response: configuration.isPressed ? 0.22 : 0.30,
+                        dampingFraction: configuration.isPressed ? 0.80 : 0.70
+                    ),
+                value: configuration.isPressed
+            )
+    }
+}
+
+// MARK: - Popover Menu Row Style
+
+private struct MochiMenuRowStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(
+                        !isEnabled ? Color.clear :
+                        configuration.isPressed
+                            ? Color.primary.opacity(0.12)
+                            : (isHovered ? Color.primary.opacity(0.08) : Color.clear)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1.0)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1.0) : 0.45)
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.08)
+                    : .spring(response: 0.22, dampingFraction: 0.76),
+                value: configuration.isPressed
+            )
+            .onHover { hovering in
+                if isEnabled {
+                    isHovered = hovering
+                }
+            }
     }
 }
 
@@ -1257,10 +1940,32 @@ private struct CompanionMaterial: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if reduceTransparency {
-            content.background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 22))
-                .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            content
+                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
         } else {
-            content.glassEffect(.regular, in: .rect(cornerRadius: 22))
+            content
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.40),
+                                    Color.white.opacity(0.12),
+                                    Color.primary.opacity(0.08)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.75
+                        )
+                )
+                .shadow(color: .black.opacity(0.16), radius: 14, x: 0, y: 7)
+                .shadow(color: .black.opacity(0.06), radius: 3, x: 0, y: 1)
         }
     }
 }
@@ -1320,6 +2025,7 @@ struct MochiMascotView: View {
                                     wakeStrength: wakeStrength, activityMotion: activityMotion,
                                     celebrationStartedAt: celebrationStartedAt, animate: !reduceMotion)
                 : MochiMascotPose())
+            .shadow(color: Color.black.opacity(0.14), radius: 5, x: 0, y: 3)
         }
         .accessibilityHidden(true)
     }
@@ -1357,11 +2063,23 @@ struct MochiMascotPose {
         let idleDuration = idleStartedAt.map { max(0, time - $0) } ?? 0
         let sleep = !isHovered && !isHeld && !isEngaged
             ? keyframe(idleDuration, [(0, 0), (sleepDelay, 0), (sleepDelay + 3, 1)]) : 0
+
+        // MARK: - Accessibility Reduce Motion (F13)
+        // Strict Priority Order: Held > Sleeping > Music Playing > In-flight Thinking > Curious Typing > Idle.
+        // Invariants: Zero continuous oscillations, exact static values: tilt == 0, lift == 0, waves == 0.
         if !animate {
-            // Reduce Motion still permits the sleep state, with a static pose and static z's.
-            if isMusicPlaying { pose.happyEyes = 1; pose.smileDepth = 17 }
-            if activityMotion.activity == .curious { pose.eyeWidth = 1.2; pose.smileDepth = 9 }
-            if activityMotion.activity == .thinking { pose.eyeHeight = 0.8; pose.smileDepth = 1 }
+            if isHeld {
+                pose.scaleX = 0.88
+                pose.scaleY = 1.16
+                pose.mouthOpen = 1
+                pose.eyeHeight = 1.4
+                pose.eyeWidth = 1.35
+                pose.tilt = 0
+                pose.lift = 0
+                pose.leftWave = 0
+                pose.rightWave = 0
+                return pose
+            }
             if sleep > 0 {
                 pose.scaleX = 1.07
                 pose.scaleY = 0.85
@@ -1369,14 +2087,53 @@ struct MochiMascotPose {
                 pose.sleepAmount = 1
                 pose.happyEyes = 0
                 pose.smileDepth = 5
+                pose.tilt = 0
+                pose.lift = 0
+                pose.leftWave = 0
+                pose.rightWave = 0
+                return pose
             }
+            if isMusicPlaying {
+                pose.happyEyes = 1
+                pose.smileDepth = 17
+                pose.cheeks = 0.22
+                pose.tilt = 0
+                pose.lift = 0
+                pose.leftWave = 0
+                pose.rightWave = 0
+                return pose
+            }
+            if activityMotion.activity == .thinking {
+                pose.eyeHeight = 0.8
+                pose.smileDepth = 1
+                pose.tilt = 0
+                pose.lift = 0
+                pose.leftWave = 0
+                pose.rightWave = 0
+                return pose
+            }
+            if activityMotion.activity == .curious {
+                pose.eyeWidth = 1.2
+                pose.smileDepth = 9
+                pose.tilt = 0
+                pose.lift = 0
+                pose.leftWave = 0
+                pose.rightWave = 0
+                return pose
+            }
+            pose.tilt = 0
+            pose.lift = 0
+            pose.leftWave = 0
+            pose.rightWave = 0
             return pose
         }
+
+        // MARK: - Dynamic Motion Kinematics (F11)
         let reacting = isActive(hoverStartedAt, at: time, duration: 1.5)
             || isActive(releasedAt, at: time, duration: 0.7)
             || isActive(wakeStartedAt, at: time, duration: 1.2)
             || isActive(celebrationStartedAt, at: time, duration: 0.8)
-        let listening = isMusicPlaying && !isHovered && !isHeld && !isEngaged && !reacting
+        let listening = isMusicPlaying && !isHovered && !isHeld && !reacting && (activityMotion.activity == .idle || !isEngaged)
         let breath = CGFloat(sin(time * .pi / 2.4))
         pose.scaleX = 1 - breath * 0.045
         pose.scaleY = 1 + breath * 0.055
@@ -1486,7 +2243,7 @@ struct MochiMascotPose {
                 pose.rightWave = 0
             }
         }
-        if !isHeld, isEngaged || activityMotion.activity == .thinking {
+        if !isHeld, !isMusicPlaying, isEngaged || activityMotion.activity == .thinking {
             let activity = activityMotion.values(at: time)
             let release = min(reactionRelease(hoverStartedAt, at: time, duration: 1.5),
                               reactionRelease(releasedAt, at: time, duration: 0.7),
