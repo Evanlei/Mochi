@@ -4,7 +4,24 @@
 
 A personal desktop DJ, built with Swift and SwiftUI. Describe a session to floating Mochi; the local Python backend discovers Last.fm candidates and ranks them to your taste, while Spotify handles playback.
 
-The native companion, live discovery integration, independent ranking, retryable Spotify resolution, continuous queue playback, and local taste memory are implemented. Live Last.fm source checks and a real discovery/ranking request have passed; real-account recommendation playback remains to be checked.
+The native companion, live discovery, independent ranking, continuous queue playback, taste memory, and a bundled local engine are implemented. The release target is a small private beta friends can try. Live Last.fm discovery checks have passed; real-account recommendation playback remains a separate listening check.
+
+## Try the private beta
+
+The architecture-specific beta includes the music engine and semantic model, so testers do not need Python or Xcode. Open the player's **… → Setup & Settings** to configure a Last.fm key in Keychain. The app starts and stops its own engine automatically, or reuses an existing development backend.
+
+Read the [private beta installation and troubleshooting guide](docs/PRIVATE_BETA.md). API matching and continuous queues currently require an invited Spotify Premium account; desktop controls and copied-link playback work without API login. This is an ad-hoc signed development build. Public distribution still needs Developer ID signing/notarization and provider approval; it is not an unrestricted public release.
+
+See the [release verification report](docs/private-beta-validation.md) for passing checks and remaining listening/distribution checks. The live attempt found and fixed a passive-refresh/start race; actual Spotify playback was not consistently confirmed, so real queue behavior is still unverified.
+
+Build the app and zip from source:
+
+```bash
+bash scripts/setup.sh
+backend/.venv/bin/python scripts/build-beta.py
+```
+
+The app, shareable archive, dependency notices and engine validation report appear in `build/beta/`. Packaging excludes personal databases and credentials. See [third-party notices](docs/THIRD_PARTY.md).
 
 ## Current functionality
 
@@ -17,8 +34,10 @@ The native companion, live discovery integration, independent ranking, retryable
 - Two-pass ranking checks song tags for promising preliminary matches, then reranks with the new information; at most 12 recordings get detail lookups.
 - Loading, reset/cancellation, and retry messages; confirmed requests retained while the app runs.
 - **More like this** in each live song's `…` menu, keeping the original request and excluding the previous batch.
+- **Why this song** explains actual ranking evidence, including available tags, taste adjustments and verified tempo.
+- Twelve **Recent sessions** retain successful prompts and modes on this Mac; replay makes fresh picks using current favorite artists.
 - Continuous listening for API-connected users: queue confirmed songs, refill from the same session, avoid recent suggestions, and stop refills from either panel.
-- **Up Next** shows the current song and confirmed upcoming songs across batches. Switch back to **Picks** for recommendation actions, or open Up Next from the menu player.
+- **Up Next** shows the current song and confirmed upcoming songs across batches, with feedback and refinement actions tied to each song's original request.
 - Click an unresolved recommendation to retry Spotify matching; recordings still need a confident artist/title/version match.
 - Song and artist searches in the companion card, with up to five matching tracks and click-to-play results.
 - Loading, cancellation, empty-result, unavailable-track, and connection/error states for search.
@@ -30,7 +49,8 @@ The native companion, live discovery integration, independent ranking, retryable
 - Local disconnect that removes Mochi's saved tokens.
 - Optional Spotify desktop controls with no Web API login, plus validated track-link playback.
 - **Find on Spotify** in recommendation menus for users outside the API beta.
-- Compact 300-point menu player with song, artist, transport, device and continuous-session status; secondary controls live under `…`.
+- Compact 300-point menu player with artwork, song, artist, transport, device and continuous-session status; secondary controls live under `…`.
+- Native Setup & Settings for engine readiness/restart, secure discovery configuration, Spotify connection and local taste/recent-list controls.
 - Play/pause, previous, next, and manual Refresh controls.
 - Refresh when the panel opens or connects, and after a playback command.
 - Clear messages for unavailable players, restricted controls, connection failures, and rate limits.
@@ -44,11 +64,11 @@ See [music discovery, setup, tradeoffs and verification](docs/music-discovery.md
 ## Requirements
 
 - macOS 26 or later.
-- Xcode with the macOS SDK and Swift toolchain. The project has been built with Swift 6.4.
+- Xcode with the macOS SDK and Swift toolchain for source builds. The project has been built with Swift 6.4.
 - The Spotify Mac desktop app for local controls; macOS Automation permission is requested when you enable them.
 - Spotify Premium and a registered developer app only for optional Web API matching/playback.
-- Python 3.12 or later and [uv](https://docs.astral.sh/uv/) for the local listening-request backend.
-- A [Last.fm API key](https://www.last.fm/api/account/create) for live discovery, kept only in backend configuration.
+- Python 3.12 or later and [uv](https://docs.astral.sh/uv/) for source development; bundled betas include their runtime.
+- A [Last.fm API key](https://www.last.fm/api/account/create) for live discovery, kept in Keychain for bundled builds or local backend configuration during development.
 
 Most source editing can be done in VS Code. Xcode provides the native project, build tools, signing, and debugger.
 
@@ -75,6 +95,10 @@ xcodebuild -project Mochi/Mochi.xcodeproj \
 The resulting app is `build/Build/Products/Debug/Mochi.app`. Build output is ignored by Git.
 
 ## Run the local backend
+
+For a new source checkout, `bash scripts/setup.sh` installs the locked dependencies, prepares the pinned semantic model, and creates `backend/.env` if needed. Add your Last.fm key there. Then `bash scripts/run-mochi.sh` starts the engine and waits until it is ready. Control-C stops only the engine that terminal started. A compatible existing backend is reused; another service on port 8000 is left alone.
+
+For reload-on-save development, use the commands below instead. A bundled beta starts its engine automatically and uses the key saved in **Setup & Settings**.
 
 Copy `backend/.env.example` to `backend/.env` from the repository root, then fill in `LASTFM_API_KEY` locally. Keep it out of chat and Git. No key is needed for the explicit fictional demo (`MOCHI_CATALOG_MODE=sample`). In a separate VS Code terminal:
 
@@ -157,7 +181,7 @@ While music is playing, Mochi dances to its own steady rhythm; this is not measu
 
 The companion stays above ordinary windows and joins desktop Spaces. Its card opens above the character when space permits, below it near the top edge, and stays within the display's usable area. If a remembered display is disconnected, Mochi moves back onto an available display. Spotify controls remain in the menu bar.
 
-The visible request summary lasts for the app session. Explicit feedback and recommendation contexts persist in the local backend's SQLite taste store; disposable provider metadata has a separate bounded cache. Favorite artists, setup completion, character position and visibility stay in local app preferences. New listening requests include your favorite artist names; they guide Last.fm candidate pools and receive a small ranking preference. **Surprise me** starts from those artists when set. **Forget taste memory** clears backend feedback/context and then native artist choices. This version has one feedback profile per local backend; native choices are per app installation.
+The visible selection lasts for the app session. Recent successful prompts and modes retain up to twelve entries in local preferences; **Recent sessions** replays them with your current artists. Explicit feedback and recommendation contexts persist in the local backend's SQLite taste store; disposable provider metadata has a separate bounded cache. Favorite artists, setup completion, character position and visibility stay in local app preferences. New listening requests include your favorite artist names; they guide Last.fm candidate pools and receive a small ranking preference. **Surprise me** starts from those artists when set. **Forget taste memory** clears backend feedback/context, then native artist choices and recent requests. This version has one feedback profile per local backend; native choices are per app installation.
 
 ## Find more songs like a recommendation
 
@@ -189,6 +213,14 @@ Mochi's app icon uses the sage character on a warm cream rounded square. The edi
 Xcode's `Assets.xcassets/AppIcon.appiconset` contains the macOS icon sizes, including Retina versions. Both Debug and Release builds use this asset. You can inspect it by opening **Assets → AppIcon** in Xcode, and see the built app's icon in Finder. Mochi runs as a menu-bar app, so it does not appear in the Dock; the music-note menu-bar button opens playback controls.
 
 ## Authentication checks
+
+For the full local release check, including native panels and an Xcode build:
+
+```bash
+bash scripts/check.sh --ui
+```
+
+Omit `--ui` for model/client checks plus the app build. The backend CI job runs the credential-free Python checks on pushes and pull requests. Packaging also runs the standalone engine against disposable fictional data and requires the real semantic model to work. `MOCHI_ENGINE_SANDBOX=1 bash scripts/test-engine.sh` checks signed parent/child startup after building the engine.
 
 From the repository root:
 
@@ -316,9 +348,10 @@ The ranking evaluation defaults to clearly labeled fictional fixtures; [the disc
 Mochi/
   Mochi.xcodeproj/        Native macOS project
   Mochi/                 SwiftUI interface, desktop windows, authentication and playback
-Tests/                   Authentication, playback, search, backend and companion checks
-scripts/                 Compile and run the checks
+Tests/                   Model, authentication, playback, engine and native panel checks
+scripts/                 Source setup/run, release packaging and verification
 docs/spotify-auth.md     Authentication walkthrough
+docs/PRIVATE_BETA.md     Tester installation, privacy and release limits
 backend/                 Local FastAPI service and locked Python dependencies
 design/                  Mascot, UI references, app icon source and previews
 ```
@@ -341,6 +374,8 @@ The smaller authentication helpers are grouped by their role:
 Combined files use `MARK` sections for navigation in Xcode and VS Code. Swift types can share a file; they still have separate jobs.
 
 `MochiCompanionController.swift` owns the native desktop panels, click/drag handling, screen placement, and saved visibility. `MochiCompanionView.swift` contains the card, request state, and vector drawing of the supplied character. `MochiArtistPreferences.swift` owns the compact editor, saved artist choices and debounced autocomplete. `MochiBackendClient.swift` sends listening/similar-song requests, artist searches and first-party feedback to Python. `backend/main.py` defines the health, discovery, artist-search and taste routes. Time-based poses reshape the body and animate the eyes, mouth, and hand independently; interaction state selects the greeting, held, and release reactions. The application delegate starts the companion at launch; it does not depend on opening the music menu first.
+
+`MochiEngine.swift` manages native setup, Keychain discovery configuration and ownership of a bundled loopback backend. `backend/serve.py` is its standalone entry point; source-only builds can use an independently started development server. `scripts/build-beta.py` packages the engine, pinned model, native app, license notices and tester instructions.
 
 ## Recommendation architecture
 
