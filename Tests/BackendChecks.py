@@ -117,6 +117,16 @@ class BackendChecks(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_engine_status_identifies_service_without_credentials(self):
+        response = self.client.get("/status")
+        self.assertEqual(response.status_code, 200)
+        status = response.json()
+        self.assertEqual(status["service"], "mochi")
+        self.assertEqual(status["api_version"], 1)
+        self.assertEqual(status["catalog_mode"], "sample")
+        self.assertEqual(set(status), {"service", "api_version", "catalog_mode", "discovery_configured", "semantic_model_installed"})
+        self.assertIsInstance(status["discovery_configured"], bool)
+
     def test_trimmed_unicode_response(self):
         text = "夜の piano 🎵"
         response = self.client.post("/listening-request", json={"prompt": f"  {text}  "})

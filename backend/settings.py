@@ -1,6 +1,7 @@
 """Local configuration; API keys are never returned by the HTTP API."""
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,7 +19,9 @@ class Settings:
 
     @classmethod
     def from_environment(cls):
-        load_dotenv(BACKEND_DIRECTORY / ".env", override=False)
+        # Shared bundles obtain their key from the native Keychain controller.
+        if not getattr(sys, "frozen", False):
+            load_dotenv(BACKEND_DIRECTORY / ".env", override=False)
         mode = os.environ.get("MOCHI_CATALOG_MODE", "live")
         if mode not in {"live", "sample"}:
             raise ValueError("MOCHI_CATALOG_MODE must be live or sample")

@@ -4,6 +4,7 @@ struct ContentView: View {
     @ObservedObject var spotify: SpotifyAuthModel
     @ObservedObject var playback: SpotifyPlaybackModel
     @ObservedObject var companion: MochiCompanionController
+    var engine: MochiEngineModel? = nil
     @State private var settingsPresented = false
     @State private var showsLinkEntry = false
 
@@ -42,6 +43,11 @@ struct ContentView: View {
 
     private var settings: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if engine != nil {
+                SettingsLink { Label("Setup & Settings", systemImage: "gearshape").font(.system(size: 12)).padding(8) }
+                    .buttonStyle(.plain).accessibilityLabel("Setup & Settings")
+                Divider().padding(.vertical, 4)
+            }
             Text(playback.usesDesktopPlayer ? "Spotify desktop controls" : "Spotify API controls")
                 .font(.system(size: 10)).foregroundStyle(.secondary).padding(8)
             settingsAction("Refresh playback", symbol: "arrow.clockwise", disabled: playback.isBusy || (!spotify.isConnected && !playback.usesDesktopPlayer)) {

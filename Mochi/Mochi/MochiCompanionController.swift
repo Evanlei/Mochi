@@ -10,6 +10,8 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
     let spotify: SpotifyAuthModel
     let playback: SpotifyPlaybackModel
     let companion: MochiCompanionController
+    let engine: MochiEngineModel?
+    private var engineTask: Task<Void, Never>?
     private var connectionSubscription: AnyCancellable?
     private var restoreTask: Task<Void, Never>?
     private var desktopSubscription: AnyCancellable?
@@ -17,13 +19,14 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
     private var sessionSubscription: AnyCancellable?
 
     override convenience init() {
-        self.init(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(defaults: .standard), companion: MochiCompanionController())
+        self.init(spotify: SpotifyAuthModel(), playback: SpotifyPlaybackModel(defaults: .standard), companion: MochiCompanionController(), engine: MochiEngineModel())
     }
 
-    init(spotify: SpotifyAuthModel, playback: SpotifyPlaybackModel, companion: MochiCompanionController) {
+    init(spotify: SpotifyAuthModel, playback: SpotifyPlaybackModel, companion: MochiCompanionController, engine: MochiEngineModel? = nil) {
         self.spotify = spotify
         self.playback = playback
         self.companion = companion
+        self.engine = engine
         super.init()
     }
 
@@ -46,6 +49,7 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         companion.start()
+        engineTask = Task { [weak self] in await self?.engine?.ensureRunning() }
         sessionSubscription = companion.request.$isSending
             .combineLatest(companion.request.$isStarting, companion.request.$isSessionActive)
             .sink { [weak self] sending, starting, active in
@@ -75,6 +79,8 @@ final class MochiAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        engineTask?.cancel()
+        engine?.stopOwned()
         restoreTask?.cancel()
         connectionSubscription?.cancel()
         desktopSubscription?.cancel()

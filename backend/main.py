@@ -29,6 +29,14 @@ app = FastAPI(lifespan=lifespan)
 def health_check():
     return {"status": "ok"}
 
+@app.get("/status")
+def engine_status():
+    from semantic import MODEL_DIRECTORY, MODEL_FILES
+    settings = app.state.settings
+    return {"service": "mochi", "api_version": 1, "catalog_mode": settings.mode,
+            "discovery_configured": bool(settings.lastfm_key),
+            "semantic_model_installed": all((MODEL_DIRECTORY / name).is_file() for name in (*MODEL_FILES, "manifest.json"))}
+
 class ListeningRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 

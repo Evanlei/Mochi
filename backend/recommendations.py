@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import uuid
+import os
 from collections import OrderedDict
 from dataclasses import replace
 
@@ -83,7 +84,8 @@ class RecommendationService:
     async def _recommend(self, prompt, intent, *, seed=None, exclude=(), artists=(), mode=DiscoveryMode.BALANCED, favorite_artist_keys=None):
         if not self.settings.lastfm_key:
             return SongSelection(catalog_kind="lastfm_live", method="none", tracks=[],
-                message="Add LASTFM_API_KEY to backend/.env, then restart the backend.", discovery_mode=mode)
+                message=("Add your Last.fm API key in Mochi's Setup & Settings." if os.environ.get("MOCHI_MANAGED_ENGINE") else
+                         "Add LASTFM_API_KEY to backend/.env, then restart the backend."), discovery_mode=mode)
         taste = self.taste.snapshot()
         taste["favorite_artists"] = set(favorite_artist_keys) if favorite_artist_keys is not None else {artist_key(name) for name in artists}
         taste["discovery_mode"] = mode
