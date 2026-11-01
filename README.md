@@ -8,13 +8,15 @@
 
 <p align="center">
   <a href="#demo">Demo</a> ·
+  <a href="#features">Features</a> ·
   <a href="#get-started">Get started</a> ·
-  <a href="#how-it-works">How it works</a> ·
+  <a href="#spotify-setup">Spotify setup</a> ·
+  <a href="#verification">Verification</a> ·
   <a href="docs/PRIVATE_BETA.md">Beta guide</a> ·
   <a href="SPEC.md">Specification</a>
 </p>
 
-Describe what you want to hear, choose how familiar or adventurous the session should be, and let Mochi find the next song. A small animated character lives on your desktop; playback controls stay in the menu bar.
+Describe what you want to hear, choose how familiar or adventurous the session should be, and let Mochi find your next song. An animated companion lives on your desktop, with playback controls in the menu bar.
 
 > **Private beta.** The native app, discovery engine and continuous queue system are implemented. Automated checks and live Last.fm discovery have passed; real Spotify playback and queue behavior still need verification. See the [release report](docs/private-beta-validation.md).
 
@@ -26,7 +28,7 @@ Describe what you want to hear, choose how familiar or adventurous the session s
   </a>
 </p>
 
-Native SwiftUI preview with fictional tracks and simulated playback. [Still preview](design/demo/mochi-demo.png) · [Recreate the demo](design/demo/README.md)
+Native SwiftUI preview with fictional tracks and simulated playback. [View a still image](design/demo/mochi-demo.png) · [Recreate the demo](design/demo/README.md)
 
 ## Features
 
@@ -64,7 +66,11 @@ The native app resolves recordings on Spotify using artist, title, version and a
 
 ## Get started
 
-Mochi requires **macOS 26 or later**, Spotify, and a [Last.fm API key](https://www.last.fm/api/account/create) for live discovery. Source development also requires Xcode and [uv](https://docs.astral.sh/uv/); the backend uses Python 3.12 or later.
+You'll need:
+
+- **macOS 26 or later** and Spotify.
+- A [Last.fm API key](https://www.last.fm/api/account/create) for live discovery.
+- **For source development:** Xcode and [uv](https://docs.astral.sh/uv/). The backend uses Python 3.12 or later.
 
 ### Bundled beta
 
@@ -85,7 +91,7 @@ Run these commands from the repository root:
 bash scripts/setup.sh
 ```
 
-This installs locked dependencies, prepares the pinned semantic model, and creates `backend/.env` if needed. Add your key locally:
+This installs locked dependencies, prepares the pinned semantic model, and creates `backend/.env` if needed. Open `backend/.env` and set your Last.fm key:
 
 ```dotenv
 LASTFM_API_KEY=your_key_here
@@ -97,7 +103,7 @@ Then start the engine:
 bash scripts/run-mochi.sh
 ```
 
-Leave that terminal running. Open `Mochi/Mochi.xcodeproj`, select **Mochi → My Mac**, and press **Command-R**. Click the menu-bar music note for playback controls or the floating character for a listening request.
+Leave that terminal running. Open [Mochi.xcodeproj](Mochi/Mochi.xcodeproj), select **Mochi → My Mac**, and press **Command-R**. Follow [Spotify setup](#spotify-setup), then click the menu-bar music note for playback controls or the floating character to request music.
 
 The engine listens at `127.0.0.1:8000`. Open the [API explorer](http://127.0.0.1:8000/docs) or [health check](http://127.0.0.1:8000/health) while it runs. **Control-C** stops the engine started by the script; an existing compatible backend is reused. Restart after changing `.env`.
 
